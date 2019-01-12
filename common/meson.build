@@ -4,6 +4,7 @@ lib_sway_common = static_library(
 		'background-image.c',
 		'cairo.c',
 		'ipc-client.c',
+                'jswrt.c',
 		'log.c',
 		'loop.c',
 		'list.c',
