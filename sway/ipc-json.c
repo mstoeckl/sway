@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include "config.h"
 #include "log.h"
+#include "jswrt.h"
 #include "sway/config.h"
 #include "sway/ipc-json.h"
 #include "sway/tree/container.h"
@@ -82,7 +83,7 @@ static const char *ipc_json_output_transform_description(enum wl_output_transfor
 	return NULL;
 }
 
-static const char *ipc_json_device_type_description(struct sway_input_device *device) {
+static const char *ipc_json_device_type_description(const struct sway_input_device *device) {
 	switch (device->wlr_device->type) {
 	case WLR_INPUT_DEVICE_POINTER:
 		return "pointer";
@@ -100,127 +101,93 @@ static const char *ipc_json_device_type_description(struct sway_input_device *de
 	return "unknown";
 }
 
-json_object *ipc_json_get_version(void) {
+void ipc_json_get_version_2(struct jswrt_state *s) {
 	int major = 0, minor = 0, patch = 0;
-	json_object *version = json_object_new_object();
-
 	sscanf(SWAY_VERSION, "%u.%u.%u", &major, &minor, &patch);
 
-	json_object_object_add(version, "human_readable", json_object_new_string(SWAY_VERSION));
-	json_object_object_add(version, "variant", json_object_new_string("sway"));
-	json_object_object_add(version, "major", json_object_new_int(major));
-	json_object_object_add(version, "minor", json_object_new_int(minor));
-	json_object_object_add(version, "patch", json_object_new_int(patch));
-	json_object_object_add(version, "loaded_config_file_name", json_object_new_string(config->current_config_path));
-
-	return version;
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "human_readable", SWAY_VERSION);
+	jswrt_kv_string(s, "variant", "sway");
+	jswrt_kv_integer(s, "major", major);
+	jswrt_kv_integer(s, "minor", minor);
+	jswrt_kv_integer(s, "patch", patch);
+	jswrt_kv_string(s,  "loaded_config_file_name", config->current_config_path);
+	jswrt_object_close(s);
 }
 
-static json_object *ipc_json_create_rect(struct wlr_box *box) {
-	json_object *rect = json_object_new_object();
-
-	json_object_object_add(rect, "x", json_object_new_int(box->x));
-	json_object_object_add(rect, "y", json_object_new_int(box->y));
-	json_object_object_add(rect, "width", json_object_new_int(box->width));
-	json_object_object_add(rect, "height", json_object_new_int(box->height));
-
-	return rect;
+void ipc_json_get_binding_modes_2(struct jswrt_state* s) {
+	jswrt_array_open(s);
+	for (int i = 0; i < config->modes->length; i++) {
+		struct sway_mode *mode = config->modes->items[i];
+		jswrt_string(s, mode->name);
+	}
+	jswrt_array_close(s);
 }
 
-static json_object *ipc_json_create_empty_rect(void) {
-	struct wlr_box empty = {0, 0, 0, 0};
+void ipc_json_get_inputs_2(struct jswrt_state* s) {
+	jswrt_array_open(s);
 
-	return ipc_json_create_rect(&empty);
-}
-
-static json_object *ipc_json_create_node(int id, char *name,
-		bool focused, json_object *focus, struct wlr_box *box) {
-	json_object *object = json_object_new_object();
-
-	json_object_object_add(object, "id", json_object_new_int(id));
-	json_object_object_add(object, "name",
-			name ? json_object_new_string(name) : NULL);
-	json_object_object_add(object, "rect", ipc_json_create_rect(box));
-	json_object_object_add(object, "focused", json_object_new_boolean(focused));
-	json_object_object_add(object, "focus", focus);
-
-	// set default values to be compatible with i3
-	json_object_object_add(object, "border",
-			json_object_new_string(
-				ipc_json_border_description(B_NONE)));
-	json_object_object_add(object, "current_border_width",
-			json_object_new_int(0));
-	json_object_object_add(object, "layout",
-			json_object_new_string(
-				ipc_json_layout_description(L_HORIZ)));
-	json_object_object_add(object, "orientation",
-			json_object_new_string(
-				ipc_json_orientation_description(L_HORIZ)));
-	json_object_object_add(object, "percent", NULL);
-	json_object_object_add(object, "window_rect", ipc_json_create_empty_rect());
-	json_object_object_add(object, "deco_rect", ipc_json_create_empty_rect());
-	json_object_object_add(object, "geometry", ipc_json_create_empty_rect());
-	json_object_object_add(object, "window", NULL);
-	json_object_object_add(object, "urgent", json_object_new_boolean(false));
-	json_object_object_add(object, "floating_nodes", json_object_new_array());
-	json_object_object_add(object, "sticky", json_object_new_boolean(false));
-
-	return object;
-}
-
-static void ipc_json_describe_root(struct sway_root *root, json_object *object) {
-	json_object_object_add(object, "type", json_object_new_string("root"));
-}
-
-static void ipc_json_describe_output(struct sway_output *output,
-		json_object *object) {
-	struct wlr_output *wlr_output = output->wlr_output;
-	json_object_object_add(object, "type", json_object_new_string("output"));
-	json_object_object_add(object, "active", json_object_new_boolean(true));
-	json_object_object_add(object, "primary", json_object_new_boolean(false));
-	json_object_object_add(object, "layout", json_object_new_string("output"));
-	json_object_object_add(object, "orientation",
-			json_object_new_string(
-				ipc_json_orientation_description(L_NONE)));
-	json_object_object_add(object, "make",
-			json_object_new_string(wlr_output->make));
-	json_object_object_add(object, "model",
-			json_object_new_string(wlr_output->model));
-	json_object_object_add(object, "serial",
-			json_object_new_string(wlr_output->serial));
-	json_object_object_add(object, "scale",
-			json_object_new_double(wlr_output->scale));
-	json_object_object_add(object, "transform",
-		json_object_new_string(
-			ipc_json_output_transform_description(wlr_output->transform)));
-
-	struct sway_workspace *ws = output_get_active_workspace(output);
-	json_object_object_add(object, "current_workspace",
-			json_object_new_string(ws->name));
-
-	json_object *modes_array = json_object_new_array();
-	struct wlr_output_mode *mode;
-	wl_list_for_each(mode, &wlr_output->modes, link) {
-		json_object *mode_object = json_object_new_object();
-		json_object_object_add(mode_object, "width",
-			json_object_new_int(mode->width));
-		json_object_object_add(mode_object, "height",
-			json_object_new_int(mode->height));
-		json_object_object_add(mode_object, "refresh",
-			json_object_new_int(mode->refresh));
-		json_object_array_add(modes_array, mode_object);
+	struct sway_input_device *device = NULL;
+	wl_list_for_each(device, &server.input->devices, link) {
+		ipc_json_describe_input_2(s, device);
 	}
 
-	json_object_object_add(object, "modes", modes_array);
+	jswrt_array_close(s);
+}
 
-	json_object *current_mode_object = json_object_new_object();
-	json_object_object_add(current_mode_object, "width",
-		json_object_new_int(wlr_output->width));
-	json_object_object_add(current_mode_object, "height",
-		json_object_new_int(wlr_output->height));
-	json_object_object_add(current_mode_object, "refresh",
-		json_object_new_int(wlr_output->refresh));
-	json_object_object_add(object, "current_mode", current_mode_object);
+static void ipc_json_create_rect_2(struct jswrt_state *s, const struct wlr_box *box) {
+	jswrt_object_open(s);
+	jswrt_kv_integer(s, "x", box->x);
+	jswrt_kv_integer(s, "y", box->y);
+	jswrt_kv_integer(s, "width", box->width);
+	jswrt_kv_integer(s, "height", box->height);
+	jswrt_object_close(s);
+
+}
+static void ipc_json_create_empty_rect_2(struct jswrt_state *s) {
+	struct wlr_box empty = {0, 0, 0, 0};
+	ipc_json_create_rect_2(s, &empty);
+}
+static void ipc_json_describe_root_2(struct jswrt_state *s, const struct sway_root *root) {
+	jswrt_kv_string(s, "type", "root");
+
+	// i3 filler (?)
+	jswrt_key(s, "geometry");
+	ipc_json_create_empty_rect_2(s);
+	// todo etc.
+}
+static void ipc_json_describe_output_2(struct jswrt_state *s, struct sway_output *output) {
+	struct wlr_output *wlr_output = output->wlr_output;
+	jswrt_kv_string(s, "type", "output");
+	jswrt_kv_bool(s, "active", true);
+	jswrt_kv_bool(s, "primary", false);
+	jswrt_kv_string(s, "layout", "output");
+	jswrt_kv_string(s, "orientation", ipc_json_orientation_description(L_NONE));
+	jswrt_kv_string(s, "make", wlr_output->make);
+	jswrt_kv_string(s, "model", wlr_output->model);
+	jswrt_kv_string(s, "serial", wlr_output->serial);
+	jswrt_kv_double(s, "scale", wlr_output->scale);
+	jswrt_kv_string(s, "transform", ipc_json_output_transform_description(wlr_output->transform));
+
+	struct sway_workspace *ws = output_get_active_workspace(output);
+	jswrt_kv_string(s, "current_workspace", ws->name);
+
+	jswrt_kv_array_open(s, "modes");
+	struct wlr_output_mode *mode;
+	wl_list_for_each(mode, &wlr_output->modes, link) {
+		jswrt_object_open(s);
+		jswrt_kv_integer(s, "width", mode->width);
+		jswrt_kv_integer(s, "height", mode->height);
+		jswrt_kv_integer(s, "refresh", mode->refresh);
+		jswrt_object_close(s);
+	}
+	jswrt_array_close(s);
+
+	jswrt_kv_object_open(s, "current_mode");
+	jswrt_kv_integer(s, "width", wlr_output->width);
+	jswrt_kv_integer(s, "height", wlr_output->height);
+	jswrt_kv_integer(s, "refresh", wlr_output->refresh);
+	jswrt_object_close(s);
 
 	struct sway_node *parent = node_get_parent(&output->node);
 	struct wlr_box parent_box = {0, 0, 0, 0};
@@ -232,122 +199,72 @@ static void ipc_json_describe_output(struct sway_output *output,
 	if (parent_box.width != 0 && parent_box.height != 0) {
 		double percent = ((double)output->width / parent_box.width)
 				* ((double)output->height / parent_box.height);
-		json_object_object_add(object, "percent", json_object_new_double(percent));
+		jswrt_kv_double(s, "percent", percent);
+	} else {
+		jswrt_kv_string(s, "percent", NULL);
 	}
 }
 
-json_object *ipc_json_describe_disabled_output(struct sway_output *output) {
-	struct wlr_output *wlr_output = output->wlr_output;
 
-	json_object *object = json_object_new_object();
-
-	json_object_object_add(object, "type", json_object_new_string("output"));
-	json_object_object_add(object, "name",
-			json_object_new_string(wlr_output->name));
-	json_object_object_add(object, "active", json_object_new_boolean(false));
-	json_object_object_add(object, "make",
-			json_object_new_string(wlr_output->make));
-	json_object_object_add(object, "model",
-			json_object_new_string(wlr_output->model));
-	json_object_object_add(object, "serial",
-			json_object_new_string(wlr_output->serial));
-	json_object_object_add(object, "modes", json_object_new_array());
-
-	json_object_object_add(object, "percent", NULL);
-
-	return object;
-}
-
-static json_object *ipc_json_describe_scratchpad_output(void) {
+static void ipc_json_describe_scratchpad_output_2(struct jswrt_state *s) {
 	struct wlr_box box;
 	root_get_box(root, &box);
 
-	// Create focus stack for __i3_scratch workspace
-	json_object *workspace_focus = json_object_new_array();
+	// Create focus stack for __i3 output
+	jswrt_object_open(s);
+	jswrt_kv_integer(s, "id", i3_output_id);
+	jswrt_kv_string(s, "name", "__i3");
+	jswrt_key(s, "rect");
+	ipc_json_create_rect_2(s, &box);
+	jswrt_kv_bool(s, "focused", false);
+	jswrt_kv_array_open(s, "focus");
+	jswrt_integer(s, i3_scratch_id);
+	jswrt_array_close(s);
+
+	jswrt_kv_array_open(s, "nodes");
+	jswrt_object_open(s);
+	// workspace!
+
+	jswrt_kv_integer(s, "id", i3_scratch_id);
+	jswrt_kv_string(s, "name", "__i3_scratch");
+	jswrt_key(s, "rect");
+	ipc_json_create_rect_2(s, &box);
+	jswrt_kv_bool(s, "focused", false);
+	jswrt_kv_array_open(s, "focus");
 	for (int i = root->scratchpad->length - 1; i >= 0; --i) {
 		struct sway_container *container = root->scratchpad->items[i];
-		json_object_array_add(workspace_focus,
-				json_object_new_int(container->node.id));
+		jswrt_integer(s, container->node.id);
 	}
-
-	json_object *workspace = ipc_json_create_node(i3_scratch_id,
-				"__i3_scratch", false, workspace_focus, &box);
-	json_object_object_add(workspace, "type",
-			json_object_new_string("workspace"));
+	jswrt_array_close(s);
+	jswrt_kv_string(s, "type", "workspace");
 
 	// List all hidden scratchpad containers as floating nodes
-	json_object *floating_array = json_object_new_array();
+	jswrt_kv_array_open(s, "floating_nodes");
 	for (int i = 0; i < root->scratchpad->length; ++i) {
 		struct sway_container *container = root->scratchpad->items[i];
 		if (!container->workspace) {
-			json_object_array_add(floating_array,
-				ipc_json_describe_node_recursive(&container->node));
+			ipc_json_describe_node_recursive_2(s, &container->node);
 		}
 	}
-	json_object_object_add(workspace, "floating_nodes", floating_array);
-
-	// Create focus stack for __i3 output
-	json_object *output_focus = json_object_new_array();
-	json_object_array_add(output_focus, json_object_new_int(i3_scratch_id));
-
-	json_object *output = ipc_json_create_node(i3_output_id,
-					"__i3", false, output_focus, &box);
-	json_object_object_add(output, "type",
-			json_object_new_string("output"));
-	json_object_object_add(output, "layout",
-			json_object_new_string("output"));
-
-	json_object *nodes = json_object_new_array();
-	json_object_array_add(nodes, workspace);
-	json_object_object_add(output, "nodes", nodes);
-
-	return output;
+	jswrt_array_close(s);
+	jswrt_object_close(s);
+	jswrt_array_close(s);
+	jswrt_object_close(s);
 }
 
-static void ipc_json_describe_workspace(struct sway_workspace *workspace,
-		json_object *object) {
-	int num = isdigit(workspace->name[0]) ? atoi(workspace->name) : -1;
 
-	json_object_object_add(object, "num", json_object_new_int(num));
-	json_object_object_add(object, "output", workspace->output ?
-			json_object_new_string(workspace->output->wlr_output->name) : NULL);
-	json_object_object_add(object, "type", json_object_new_string("workspace"));
-	json_object_object_add(object, "urgent",
-			json_object_new_boolean(workspace->urgent));
-	json_object_object_add(object, "representation", workspace->representation ?
-			json_object_new_string(workspace->representation) : NULL);
-
-	json_object_object_add(object, "layout",
-			json_object_new_string(
-				ipc_json_layout_description(workspace->layout)));
-	json_object_object_add(object, "orientation",
-			json_object_new_string(
-				ipc_json_orientation_description(workspace->layout)));
-
-	// Floating
-	json_object *floating_array = json_object_new_array();
-	for (int i = 0; i < workspace->floating->length; ++i) {
-		struct sway_container *floater = workspace->floating->items[i];
-		json_object_array_add(floating_array,
-				ipc_json_describe_node_recursive(&floater->node));
-	}
-	json_object_object_add(object, "floating_nodes", floating_array);
-}
-
-static void ipc_json_describe_view(struct sway_container *c, json_object *object) {
-	json_object_object_add(object, "pid", json_object_new_int(c->view->pid));
+static void ipc_json_describe_view_2(struct jswrt_state *s, struct sway_container *c) {
+	jswrt_kv_integer(s, "pid", c->view->pid);
 
 	const char *app_id = view_get_app_id(c->view);
-	json_object_object_add(object, "app_id",
-			app_id ? json_object_new_string(app_id) : NULL);
+	jswrt_kv_string(s, "app_id", app_id);
 
-	json_object *marks = json_object_new_array();
+	jswrt_kv_array_open(s, "marks");
 	list_t *con_marks = c->marks;
 	for (int i = 0; i < con_marks->length; ++i) {
-		json_object_array_add(marks, json_object_new_string(con_marks->items[i]));
+		jswrt_string(s, con_marks->items[i]);
 	}
-
-	json_object_object_add(object, "marks", marks);
+	jswrt_array_close(s);
 
 	struct wlr_box window_box = {
 		c->content_x - c->x,
@@ -356,7 +273,8 @@ static void ipc_json_describe_view(struct sway_container *c, json_object *object
 		c->content_height
 	};
 
-	json_object_object_add(object, "window_rect", ipc_json_create_rect(&window_box));
+	jswrt_key(s, "window_rect");
+	ipc_json_create_rect_2(s, &window_box);
 
 	struct wlr_box deco_box = {0, 0, 0, 0};
 
@@ -365,64 +283,60 @@ static void ipc_json_describe_view(struct sway_container *c, json_object *object
 		deco_box.height = c->content_y - c->y;
 	}
 
-	json_object_object_add(object, "deco_rect", ipc_json_create_rect(&deco_box));
+	jswrt_key(s, "deco_rect");
+	ipc_json_create_rect_2(s, &deco_box);
 
 	struct wlr_box geometry = {0, 0, c->view->natural_width, c->view->natural_height};
-	json_object_object_add(object, "geometry", ipc_json_create_rect(&geometry));
+	jswrt_key(s, "geometry");
+	ipc_json_create_rect_2(s, &geometry);
 
 #if HAVE_XWAYLAND
 	if (c->view->type == SWAY_VIEW_XWAYLAND) {
-		json_object_object_add(object, "window",
-				json_object_new_int(view_get_x11_window_id(c->view)));
+		jswrt_kv_integer(s, "window", view_get_x11_window_id(c->view));
 
-		json_object *window_props = json_object_new_object();
+		jswrt_kv_object_open(s, "window_properties");
 
 		const char *class = view_get_class(c->view);
 		if (class) {
-			json_object_object_add(window_props, "class", json_object_new_string(class));
+			jswrt_kv_string(s, "class", class);
 		}
 		const char *instance = view_get_instance(c->view);
 		if (instance) {
-			json_object_object_add(window_props, "instance", json_object_new_string(instance));
+			jswrt_kv_string(s, "instance", instance);
 		}
 		if (c->title) {
-			json_object_object_add(window_props, "title", json_object_new_string(c->title));
+			jswrt_kv_string(s, "title", c->title);
 		}
 
 		// the transient_for key is always present in i3's output
 		uint32_t parent_id = view_get_x11_parent_id(c->view);
-		json_object_object_add(window_props, "transient_for",
-				parent_id ? json_object_new_int(parent_id) : NULL);
+		if (parent_id) {
+			jswrt_kv_integer(s, "transient_for", parent_id);
+		} else {
+			jswrt_kv_string(s, "transient_for", NULL);
+		}
 
 		const char *role = view_get_window_role(c->view);
 		if (role) {
-			json_object_object_add(window_props, "window_role", json_object_new_string(role));
+			jswrt_kv_string(s, "window_role", role);
 		}
 
-		json_object_object_add(object, "window_properties", window_props);
+		jswrt_object_close(s);
 	}
 #endif
 }
 
-static void ipc_json_describe_container(struct sway_container *c, json_object *object) {
-	json_object_object_add(object, "name",
-			c->title ? json_object_new_string(c->title) : NULL);
-	json_object_object_add(object, "type",
-			json_object_new_string(container_is_floating(c) ? "floating_con" : "con"));
-
-	json_object_object_add(object, "layout",
-			json_object_new_string(
-				ipc_json_layout_description(c->layout)));
-
-	json_object_object_add(object, "orientation",
-			json_object_new_string(
-				ipc_json_orientation_description(c->layout)));
+static void ipc_json_describe_container_2(struct jswrt_state *s, struct sway_container *c) {
+	jswrt_kv_string(s, "name", c->title);
+	jswrt_kv_string(s, "type", container_is_floating(c) ? "floating_con" : "con");
+	jswrt_kv_string(s, "layout", ipc_json_layout_description(c->layout));
+	jswrt_kv_string(s, "orientation", ipc_json_orientation_description(c->layout));
 
 	bool urgent = c->view ?
 		view_is_urgent(c->view) : container_has_urgent_child(c);
-	json_object_object_add(object, "urgent", json_object_new_boolean(urgent));
-	json_object_object_add(object, "sticky", json_object_new_boolean(c->is_sticky));
-	json_object_object_add(object, "fullscreen_mode", json_object_new_int(c->is_fullscreen));
+	jswrt_kv_bool(s, "urgent", urgent);
+	jswrt_kv_bool(s, "sticky", c->is_sticky);
+	jswrt_kv_integer(s, "fullscreen_mode", c->is_fullscreen);
 
 	struct sway_node *parent = node_get_parent(&c->node);
 	struct wlr_box parent_box = {0, 0, 0, 0};
@@ -434,148 +348,208 @@ static void ipc_json_describe_container(struct sway_container *c, json_object *o
 	if (parent_box.width != 0 && parent_box.height != 0) {
 		double percent = ((double)c->width / parent_box.width)
 				* ((double)c->height / parent_box.height);
-		json_object_object_add(object, "percent", json_object_new_double(percent));
+		jswrt_kv_double(s, "percent", percent);
+	} else {
+		jswrt_kv_string(s, "percent", NULL);
 	}
 
-	json_object_object_add(object, "border",
-			json_object_new_string(
-				ipc_json_border_description(c->current.border)));
-	json_object_object_add(object, "current_border_width",
-			json_object_new_int(c->current.border_thickness));
-	json_object_object_add(object, "floating_nodes", json_object_new_array());
+	jswrt_kv_string(s, "border", ipc_json_border_description(c->current.border));
+	jswrt_kv_integer(s, "current_border_width", c->current.border_thickness);
+	jswrt_kv_array_open(s, "floating_nodes");
+	jswrt_array_close(s);
 
 	if (c->view) {
-		ipc_json_describe_view(c, object);
+		ipc_json_describe_view_2(s, c);
 	}
 }
 
-struct focus_inactive_data {
+static void ipc_json_describe_workspace_2(struct jswrt_state *s, struct sway_workspace *workspace) {
+	int num = isdigit(workspace->name[0]) ? atoi(workspace->name) : -1;
+
+	jswrt_kv_integer(s, "num", num);
+	jswrt_kv_string(s, "output", workspace->output ? workspace->output->wlr_output->name : NULL);
+	jswrt_kv_string(s, "type", "workspace");
+	jswrt_kv_bool(s, "urgent", workspace->urgent);
+	jswrt_kv_string(s, "representation", workspace->representation);
+
+	jswrt_kv_string(s, "layout", ipc_json_layout_description(workspace->layout));
+	jswrt_kv_string(s, "orientation", ipc_json_orientation_description(workspace->layout));
+
+	// Floating
+	jswrt_kv_array_open(s, "floating_nodes");
+	for (int i = 0; i < workspace->floating->length; ++i) {
+		struct sway_container *floater = workspace->floating->items[i];
+		ipc_json_describe_node_recursive_2(s, &floater->node);
+	}
+	jswrt_array_close(s);
+}
+
+struct focus_inactive_test_data_2 {
+	size_t id;
+	bool duplicate;
 	struct sway_node *node;
-	json_object *object;
+	int nleft_to_visit;
 };
 
-static void focus_inactive_children_iterator(struct sway_node *node,
+static void focus_inactive_children_test_iterator_2(struct sway_node *node,
 		void *_data) {
-	struct focus_inactive_data *data = _data;
-	json_object *focus = data->object;
+	struct focus_inactive_test_data_2 *data = _data;
+	if (data->nleft_to_visit <= 0) {
+		return;
+	}
+	data->nleft_to_visit--;
+
 	if (data->node == &root->node) {
 		struct sway_output *output = node_get_output(node);
 		if (output == NULL) {
 			return;
 		}
-		size_t id = output->node.id;
-		int len = json_object_array_length(focus);
-		for (int i = 0; i < len; ++i) {
-			if ((size_t) json_object_get_int(json_object_array_get_idx(focus, i)) == id) {
-				return;
-			}
+		if (output->node.id == data->id) {
+			data->duplicate = true;
 		}
-		node = &output->node;
 	} else if (node_get_parent(node) != data->node) {
 		return;
+	} else {
+		if (node->id == data->id) {
+			data->duplicate = true;
+		}
 	}
-	json_object_array_add(focus, json_object_new_int(node->id));
+
 }
 
-json_object *ipc_json_describe_node(struct sway_node *node) {
+struct focus_inactive_data_2 {
+	struct sway_node *node;
+	struct jswrt_state *state;
+	int nvisited;
+};
+
+static void focus_inactive_children_iterator_2(struct sway_node *node,
+		void *_data) {
+	struct focus_inactive_data_2 *data = _data;
+	data->nvisited++;
+	// TODO: distinct iterator for this case
+	if (data->node == &root->node) {
+		struct sway_output *output = node_get_output(node);
+		if (output == NULL) {
+			return;
+		}
+
+		struct sway_seat *seat = input_manager_get_default_seat();
+		size_t id = output->node.id;
+		struct focus_inactive_test_data_2 tst =
+			{ .id = id, .duplicate = false,
+			.node = data->node, .nleft_to_visit = data->nvisited - 1 };
+		seat_for_each_node(seat, focus_inactive_children_test_iterator_2, &tst);
+		if (tst.duplicate) {
+			return;
+		}
+		jswrt_integer(data->state, id);
+	} else if (node_get_parent(node) != data->node) {
+		return;
+	} else {
+		jswrt_integer(data->state, node->id);
+	}
+}
+
+void ipc_json_start_describe_node_2(struct jswrt_state *s, struct sway_node *node, bool focused) {
 	struct sway_seat *seat = input_manager_get_default_seat();
-	bool focused = seat_get_focus(seat) == node;
 	char *name = node_get_name(node);
 
 	struct wlr_box box;
 	node_get_box(node, &box);
 
-	json_object *focus = json_object_new_array();
-	struct focus_inactive_data data = {
-		.node = node,
-		.object = focus,
-	};
-	seat_for_each_node(seat, focus_inactive_children_iterator, &data);
+	// previously, had 'ipc_json_create_node', and edited properties after the
+	// fact. In write-once world, nyet.
+	jswrt_object_open(s);
+	jswrt_kv_integer(s, "id", (int)node->id);
+	jswrt_kv_string(s, "name", name);
+	jswrt_key(s, "rect");
+	ipc_json_create_rect_2(s, &box);
+	jswrt_kv_bool(s, "focused", focused);
+	jswrt_kv_array_open(s, "focus");
 
-	json_object *object = ipc_json_create_node(
-				(int)node->id, name, focused, focus, &box);
+	struct focus_inactive_data_2 data = {
+		.node = node,
+		.state = s,
+		.nvisited = 0,
+	};
+	seat_for_each_node(seat, focus_inactive_children_iterator_2, &data);
+	jswrt_array_close(s);
+
+	// What follows should also have default values ??
 
 	switch (node->type) {
 	case N_ROOT:
-		ipc_json_describe_root(root, object);
+		ipc_json_describe_root_2(s, root);
 		break;
 	case N_OUTPUT:
-		ipc_json_describe_output(node->sway_output, object);
+		ipc_json_describe_output_2(s, node->sway_output);
 		break;
 	case N_CONTAINER:
-		ipc_json_describe_container(node->sway_container, object);
+		ipc_json_describe_container_2(s, node->sway_container);
 		break;
 	case N_WORKSPACE:
-		ipc_json_describe_workspace(node->sway_workspace, object);
+		ipc_json_describe_workspace_2(s, node->sway_workspace);
 		break;
 	}
 
-	return object;
+	// We do *NOT* close the open object; that is caller's duty
 }
 
-json_object *ipc_json_describe_node_recursive(struct sway_node *node) {
-	json_object *object = ipc_json_describe_node(node);
-	int i;
+void ipc_json_describe_node_recursive_2(struct jswrt_state *s, struct sway_node *node) {
+	// TODO: add 'focused' and 'visible' fields / override via const bool pointer, either NULL or real
+	// TODO: visible details ??
+	struct sway_seat *seat = input_manager_get_default_seat();
+	bool focused = seat_get_focus(seat) == node;
+	ipc_json_start_describe_node_2(s, node, focused);
 
-	json_object *children = json_object_new_array();
+	jswrt_kv_array_open(s, "nodes");
 	switch (node->type) {
 	case N_ROOT:
-		json_object_array_add(children,
-				ipc_json_describe_scratchpad_output());
-		for (i = 0; i < root->outputs->length; ++i) {
+		ipc_json_describe_scratchpad_output_2(s);
+		for (int i = 0; i < root->outputs->length; ++i) {
 			struct sway_output *output = root->outputs->items[i];
-			json_object_array_add(children,
-					ipc_json_describe_node_recursive(&output->node));
+			ipc_json_describe_node_recursive_2(s, &output->node);
 		}
 		break;
 	case N_OUTPUT:
-		for (i = 0; i < node->sway_output->workspaces->length; ++i) {
+		for (int i = 0; i < node->sway_output->workspaces->length; ++i) {
 			struct sway_workspace *ws = node->sway_output->workspaces->items[i];
-			json_object_array_add(children,
-					ipc_json_describe_node_recursive(&ws->node));
+			ipc_json_describe_node_recursive_2(s, &ws->node);
 		}
 		break;
 	case N_WORKSPACE:
-		for (i = 0; i < node->sway_workspace->tiling->length; ++i) {
+		for (int i = 0; i < node->sway_workspace->tiling->length; ++i) {
 			struct sway_container *con = node->sway_workspace->tiling->items[i];
-			json_object_array_add(children,
-					ipc_json_describe_node_recursive(&con->node));
+			ipc_json_describe_node_recursive_2(s, &con->node);
 		}
 		break;
 	case N_CONTAINER:
 		if (node->sway_container->children) {
-			for (i = 0; i < node->sway_container->children->length; ++i) {
+			for (int i = 0; i < node->sway_container->children->length; ++i) {
 				struct sway_container *child =
 					node->sway_container->children->items[i];
-				json_object_array_add(children,
-						ipc_json_describe_node_recursive(&child->node));
+				ipc_json_describe_node_recursive_2(s, &child->node);
 			}
 		}
 		break;
 	}
-	json_object_object_add(object, "nodes", children);
+	jswrt_array_close(s);
 
-	return object;
+	jswrt_object_close(s); // corresponding to 'start_describe'
 }
 
-json_object *ipc_json_describe_input(struct sway_input_device *device) {
+void ipc_json_describe_input_2(struct jswrt_state *s, const struct sway_input_device *device) {
 	if (!(sway_assert(device, "Device must not be null"))) {
-		return NULL;
+		return;
 	}
 
-	json_object *object = json_object_new_object();
-
-	json_object_object_add(object, "identifier",
-		json_object_new_string(device->identifier));
-	json_object_object_add(object, "name",
-		json_object_new_string(device->wlr_device->name));
-	json_object_object_add(object, "vendor",
-		json_object_new_int(device->wlr_device->vendor));
-	json_object_object_add(object, "product",
-		json_object_new_int(device->wlr_device->product));
-	json_object_object_add(object, "type",
-		json_object_new_string(
-			ipc_json_device_type_description(device)));
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "identifier", device->identifier);
+	jswrt_kv_string(s, "name", device->wlr_device->name);
+	jswrt_kv_integer(s, "vendor", device->wlr_device->vendor);
+	jswrt_kv_integer(s, "product", device->wlr_device->product);
+	jswrt_kv_string(s, "type", ipc_json_device_type_description(device));
 
 	if (device->wlr_device->type == WLR_INPUT_DEVICE_KEYBOARD) {
 		struct wlr_keyboard *keyboard = device->wlr_device->keyboard;
@@ -591,236 +565,298 @@ json_object *ipc_json_describe_input(struct sway_input_device *device) {
 			if (is_active) {
 				const char *layout =
 					xkb_keymap_layout_get_name(keymap, layout_idx);
-				json_object_object_add(object, "xkb_active_layout_name",
-						json_object_new_string(layout));
+
+				jswrt_kv_string(s, "xkb_active_layout_name", layout);
 				break;
 			}
 		}
 	}
 
-	return object;
+	jswrt_object_close(s);
 }
 
-json_object *ipc_json_describe_seat(struct sway_seat *seat) {
-	if (!(sway_assert(seat, "Seat must not be null"))) {
-		return NULL;
+
+void ipc_json_list_bars_2(struct jswrt_state *s) {
+	jswrt_array_open(s);
+	for (int i = 0; i < config->bars->length; ++i) {
+		struct bar_config *bar = config->bars->items[i];
+		jswrt_string(s, bar->id);
 	}
-
-	json_object *object = json_object_new_object();
-	struct sway_node *focus = seat_get_focus(seat);
-
-	json_object_object_add(object, "name",
-		json_object_new_string(seat->wlr_seat->name));
-	json_object_object_add(object, "capabilities",
-		json_object_new_int(seat->wlr_seat->capabilities));
-	json_object_object_add(object, "focus",
-		json_object_new_int(focus ? focus->id : 0));
-
-	json_object *devices = json_object_new_array();
-	struct sway_seat_device *device = NULL;
-	wl_list_for_each(device, &seat->devices, link) {
-		json_object_array_add(devices, ipc_json_describe_input(device->input_device));
-	}
-	json_object_object_add(object, "devices", devices);
-
-	return object;
+	jswrt_array_close(s);
 }
-
-json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
+void ipc_json_describe_bar_config_2(struct jswrt_state *s, const struct bar_config *bar) {
 	if (!sway_assert(bar, "Bar must not be NULL")) {
-		return NULL;
+		return;
 	}
 
-	json_object *json = json_object_new_object();
-	json_object_object_add(json, "id", json_object_new_string(bar->id));
-	json_object_object_add(json, "mode", json_object_new_string(bar->mode));
-	json_object_object_add(json, "hidden_state",
-			json_object_new_string(bar->hidden_state));
-	json_object_object_add(json, "position",
-			json_object_new_string(bar->position));
-	json_object_object_add(json, "status_command", bar->status_command ?
-			json_object_new_string(bar->status_command) : NULL);
-	json_object_object_add(json, "font",
-			json_object_new_string((bar->font) ? bar->font : config->font));
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "id", bar->id);
+	jswrt_kv_string(s, "mode", bar->mode);
+	jswrt_kv_string(s, "hidden_state", bar->hidden_state);
+	jswrt_kv_string(s, "position", bar->position);
+	jswrt_kv_string(s, "status_command", bar->status_command);
+	jswrt_kv_string(s, "font", bar->font);
 
-	json_object *gaps = json_object_new_object();
-	json_object_object_add(gaps, "top",
-			json_object_new_int(bar->gaps.top));
-	json_object_object_add(gaps, "right",
-			json_object_new_int(bar->gaps.right));
-	json_object_object_add(gaps, "bottom",
-			json_object_new_int(bar->gaps.bottom));
-	json_object_object_add(gaps, "left",
-			json_object_new_int(bar->gaps.left));
-	json_object_object_add(json, "gaps", gaps);
+	jswrt_kv_object_open(s, "gaps");
+	jswrt_kv_integer(s, "top", bar->gaps.top);
+	jswrt_kv_integer(s, "right", bar->gaps.right);
+	jswrt_kv_integer(s, "bottom", bar->gaps.bottom);
+	jswrt_kv_integer(s, "left", bar->gaps.left);
+	jswrt_object_close(s);
 
 	if (bar->separator_symbol) {
-		json_object_object_add(json, "separator_symbol",
-				json_object_new_string(bar->separator_symbol));
+		jswrt_kv_string(s, "separator_symbol", bar->separator_symbol);
 	}
-	json_object_object_add(json, "bar_height",
-			json_object_new_int(bar->height));
-	json_object_object_add(json, "wrap_scroll",
-			json_object_new_boolean(bar->wrap_scroll));
-	json_object_object_add(json, "workspace_buttons",
-			json_object_new_boolean(bar->workspace_buttons));
-	json_object_object_add(json, "strip_workspace_numbers",
-			json_object_new_boolean(bar->strip_workspace_numbers));
-	json_object_object_add(json, "strip_workspace_name",
-			json_object_new_boolean(bar->strip_workspace_name));
-	json_object_object_add(json, "binding_mode_indicator",
-			json_object_new_boolean(bar->binding_mode_indicator));
-	json_object_object_add(json, "verbose",
-			json_object_new_boolean(bar->verbose));
-	json_object_object_add(json, "pango_markup",
-			json_object_new_boolean(bar->pango_markup));
+	jswrt_kv_integer(s, "bar_height", bar->height);
+	jswrt_kv_bool(s, "wrap_scroll", bar->wrap_scroll);
+	jswrt_kv_bool(s, "workspace_buttons", bar->workspace_buttons);
+	jswrt_kv_bool(s, "strip_workspace_numbers", bar->strip_workspace_numbers);
+	jswrt_kv_bool(s, "strip_workspace_name", bar->strip_workspace_name);
+	jswrt_kv_bool(s, "binding_mode_indicator", bar->binding_mode_indicator);
+	jswrt_kv_bool(s, "verbose", bar->verbose);
+	jswrt_kv_bool(s, "pango_markup", bar->pango_markup);
 
-	json_object *colors = json_object_new_object();
-	json_object_object_add(colors, "background",
-			json_object_new_string(bar->colors.background));
-	json_object_object_add(colors, "statusline",
-			json_object_new_string(bar->colors.statusline));
-	json_object_object_add(colors, "separator",
-			json_object_new_string(bar->colors.separator));
+	jswrt_kv_object_open(s, "colors");
+	jswrt_kv_string(s, "background", bar->colors.background);
+	jswrt_kv_string(s, "statusline", bar->colors.statusline);
+	jswrt_kv_string(s, "separator", bar->colors.separator);
+	jswrt_kv_string(s, "focused_background", bar->colors.focused_background ?
+		bar->colors.focused_background : bar->colors.background);
+	jswrt_kv_string(s, "focused_statusline", bar->colors.focused_statusline ?
+		bar->colors.focused_statusline : bar->colors.statusline);
+	jswrt_kv_string(s, "focused_separator", bar->colors.focused_separator ?
+		bar->colors.focused_separator : bar->colors.separator);
 
-	if (bar->colors.focused_background) {
-		json_object_object_add(colors, "focused_background",
-				json_object_new_string(bar->colors.focused_background));
-	} else {
-		json_object_object_add(colors, "focused_background",
-				json_object_new_string(bar->colors.background));
-	}
+	jswrt_kv_string(s, "focused_workspace_border", bar->colors.focused_workspace_border);
+	jswrt_kv_string(s, "focused_workspace_bg", bar->colors.focused_workspace_bg);
+	jswrt_kv_string(s, "focused_workspace_text", bar->colors.focused_workspace_text);
 
-	if (bar->colors.focused_statusline) {
-		json_object_object_add(colors, "focused_statusline",
-				json_object_new_string(bar->colors.focused_statusline));
-	} else {
-		json_object_object_add(colors, "focused_statusline",
-				json_object_new_string(bar->colors.statusline));
-	}
+	jswrt_kv_string(s, "inactive_workspace_border", bar->colors.inactive_workspace_border);
+	jswrt_kv_string(s, "inactive_workspace_bg", bar->colors.inactive_workspace_bg);
+	jswrt_kv_string(s, "inactive_workspace_text", bar->colors.inactive_workspace_text);
 
-	if (bar->colors.focused_separator) {
-		json_object_object_add(colors, "focused_separator",
-				json_object_new_string(bar->colors.focused_separator));
-	} else {
-		json_object_object_add(colors, "focused_separator",
-				json_object_new_string(bar->colors.separator));
-	}
+	jswrt_kv_string(s, "active_workspace_border", bar->colors.active_workspace_border);
+	jswrt_kv_string(s, "active_workspace_bg", bar->colors.active_workspace_bg);
+	jswrt_kv_string(s, "active_workspace_text", bar->colors.active_workspace_text);
 
-	json_object_object_add(colors, "focused_workspace_border",
-			json_object_new_string(bar->colors.focused_workspace_border));
-	json_object_object_add(colors, "focused_workspace_bg",
-			json_object_new_string(bar->colors.focused_workspace_bg));
-	json_object_object_add(colors, "focused_workspace_text",
-			json_object_new_string(bar->colors.focused_workspace_text));
+	jswrt_kv_string(s, "urgent_workspace_border", bar->colors.urgent_workspace_border);
+	jswrt_kv_string(s, "urgent_workspace_bg", bar->colors.urgent_workspace_bg);
+	jswrt_kv_string(s, "urgent_workspace_text", bar->colors.urgent_workspace_text);
 
-	json_object_object_add(colors, "inactive_workspace_border",
-			json_object_new_string(bar->colors.inactive_workspace_border));
-	json_object_object_add(colors, "inactive_workspace_bg",
-			json_object_new_string(bar->colors.inactive_workspace_bg));
-	json_object_object_add(colors, "inactive_workspace_text",
-			json_object_new_string(bar->colors.inactive_workspace_text));
+	jswrt_kv_string(s, "binding_mode_border", bar->colors.binding_mode_border ?
+		bar->colors.binding_mode_border : bar->colors.urgent_workspace_border);
+	jswrt_kv_string(s, "binding_mode_bg", bar->colors.binding_mode_bg ?
+		bar->colors.binding_mode_bg : bar->colors.urgent_workspace_bg);
+	jswrt_kv_string(s, "binding_mode_text", bar->colors.binding_mode_text ?
+		bar->colors.binding_mode_text : bar->colors.urgent_workspace_text);
 
-	json_object_object_add(colors, "active_workspace_border",
-			json_object_new_string(bar->colors.active_workspace_border));
-	json_object_object_add(colors, "active_workspace_bg",
-			json_object_new_string(bar->colors.active_workspace_bg));
-	json_object_object_add(colors, "active_workspace_text",
-			json_object_new_string(bar->colors.active_workspace_text));
-
-	json_object_object_add(colors, "urgent_workspace_border",
-			json_object_new_string(bar->colors.urgent_workspace_border));
-	json_object_object_add(colors, "urgent_workspace_bg",
-			json_object_new_string(bar->colors.urgent_workspace_bg));
-	json_object_object_add(colors, "urgent_workspace_text",
-			json_object_new_string(bar->colors.urgent_workspace_text));
-
-	if (bar->colors.binding_mode_border) {
-		json_object_object_add(colors, "binding_mode_border",
-				json_object_new_string(bar->colors.binding_mode_border));
-	} else {
-		json_object_object_add(colors, "binding_mode_border",
-				json_object_new_string(bar->colors.urgent_workspace_border));
-	}
-
-	if (bar->colors.binding_mode_bg) {
-		json_object_object_add(colors, "binding_mode_bg",
-				json_object_new_string(bar->colors.binding_mode_bg));
-	} else {
-		json_object_object_add(colors, "binding_mode_bg",
-				json_object_new_string(bar->colors.urgent_workspace_bg));
-	}
-
-	if (bar->colors.binding_mode_text) {
-		json_object_object_add(colors, "binding_mode_text",
-				json_object_new_string(bar->colors.binding_mode_text));
-	} else {
-		json_object_object_add(colors, "binding_mode_text",
-				json_object_new_string(bar->colors.urgent_workspace_text));
-	}
-
-	json_object_object_add(json, "colors", colors);
+	jswrt_object_close(s);
 
 	if (bar->bindings->length > 0) {
-		json_object *bindings = json_object_new_array();
+		jswrt_kv_array_open(s, "bindings");
 		for (int i = 0; i < bar->bindings->length; ++i) {
 			struct bar_binding *binding = bar->bindings->items[i];
-			json_object *bind = json_object_new_object();
-			json_object_object_add(bind, "input_code",
-					json_object_new_int(binding->button));
-			json_object_object_add(bind, "command",
-					json_object_new_string(binding->command));
-			json_object_object_add(bind, "release",
-					json_object_new_boolean(binding->release));
-			json_object_array_add(bindings, bind);
+			jswrt_object_open(s);
+			jswrt_kv_integer(s, "input_code", binding->button);
+			jswrt_kv_string(s, "command", binding->command);
+			jswrt_kv_bool(s, "release", binding->release);
+			jswrt_object_close(s);
 		}
-		json_object_object_add(json, "bindings", bindings);
+		jswrt_array_close(s);
 	}
 
 	// Add outputs if defined
 	if (bar->outputs && bar->outputs->length > 0) {
-		json_object *outputs = json_object_new_array();
+		jswrt_kv_array_open(s, "outputs");
 		for (int i = 0; i < bar->outputs->length; ++i) {
 			const char *name = bar->outputs->items[i];
-			json_object_array_add(outputs, json_object_new_string(name));
+			jswrt_string(s, name);
 		}
-		json_object_object_add(json, "outputs", outputs);
+		jswrt_array_close(s);
 	}
 #if HAVE_TRAY
 	// Add tray outputs if defined
 	if (bar->tray_outputs && bar->tray_outputs->length > 0) {
-		json_object *tray_outputs = json_object_new_array();
+		jswrt_kv_array_open(s, "tray_outputs");
 		for (int i = 0; i < bar->tray_outputs->length; ++i) {
 			const char *name = bar->tray_outputs->items[i];
-			json_object_array_add(tray_outputs, json_object_new_string(name));
+			jswrt_string(s, name);
 		}
-		json_object_object_add(json, "tray_outputs", tray_outputs);
+		jswrt_array_close(s);
 	}
 
-	json_object *tray_bindings = json_object_new_array();
+	bool has_tray_bindings = false;
 	for (int i = 0; i < 10; ++i) {
-		if (bar->tray_bindings[i]) {
-			json_object *bind = json_object_new_object();
-			json_object_object_add(bind, "input_code",
-					json_object_new_int(i));
-			json_object_object_add(bind, "command",
-					json_object_new_string(bar->tray_bindings[i]));
-			json_object_array_add(tray_bindings, bind);
-		}
+		has_tray_bindings |= bar->tray_bindings[i] != NULL;
 	}
-	if (json_object_array_length(tray_bindings) > 0) {
-		json_object_object_add(json, "tray_bindings", tray_bindings);
-	} else {
-		json_object_put(tray_bindings);
+	if (has_tray_bindings) {
+		jswrt_kv_array_open(s, "tray_bindings");
+		for (int i = 0; i < 10; ++i) {
+			if (bar->tray_bindings[i]) {
+				jswrt_object_open(s);
+				jswrt_kv_integer(s, "input_code", i);
+				jswrt_kv_string(s, "command", bar->tray_bindings[i]);
+				jswrt_object_close(s);
+			}
+		}
+		jswrt_array_close(s);
 	}
 
 	if (bar->icon_theme) {
-		json_object_object_add(json, "icon_theme",
-				json_object_new_string(bar->icon_theme));
+		jswrt_kv_string(s, "icon_theme", bar->icon_theme);
 	}
 
-	json_object_object_add(json, "tray_padding",
-			json_object_new_int(bar->tray_padding));
+	jswrt_kv_integer(s, "tray_padding", bar->tray_padding);
 #endif
-	return json;
+
+	jswrt_object_close(s);
+}
+
+
+void ipc_json_describe_seat_2(struct jswrt_state *s, struct sway_seat *seat) {
+	if (!(sway_assert(seat, "Seat must not be null"))) {
+		return;
+	}
+
+	jswrt_object_open(s);
+	struct sway_node *focus = seat_get_focus(seat);
+
+	jswrt_kv_string(s, "name", seat->wlr_seat->name);
+	jswrt_kv_integer(s, "capabilities", seat->wlr_seat->capabilities);
+	jswrt_kv_integer(s, "focus", focus ? focus->id : 0);
+
+	jswrt_kv_array_open(s, "devices");
+
+	struct sway_seat_device *device = NULL;
+	wl_list_for_each(device, &seat->devices, link) {
+		ipc_json_describe_input_2(s, device->input_device);
+	}
+
+	jswrt_array_close(s);
+	jswrt_object_close(s);
+}
+
+void ipc_json_get_seats_2(struct jswrt_state *s) {
+	jswrt_array_open(s);
+	struct sway_seat *seat = NULL;
+	wl_list_for_each(seat, &server.input->seats, link) {
+		ipc_json_describe_seat_2(s, seat);
+	}
+	jswrt_array_close(s);
+}
+
+
+static void ipc_get_marks_callback_2(struct sway_container *con, void *data) {
+	struct jswrt_state *s = (struct jswrt_state *)data;
+	for (int i = 0; i < con->marks->length; ++i) {
+		const char *mark = (const char *)con->marks->items[i];
+		jswrt_string(s, mark);
+	}
+}
+void ipc_json_get_marks_2(struct jswrt_state *s) {
+	jswrt_array_open(s);
+	root_for_each_container(ipc_get_marks_callback_2, s);
+	jswrt_array_close(s);
+}
+
+void ipc_json_get_config_2(struct jswrt_state *s) {
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "config", config->current_config);
+	jswrt_object_close(s);
+}
+
+
+static void ipc_get_workspaces_callback(struct sway_workspace *workspace,
+		void *data) {
+	struct jswrt_state *s = data;
+
+	// override the default focused indicator because
+	// it's set differently for the get_workspaces reply
+	struct sway_seat *seat = input_manager_get_default_seat();
+	struct sway_workspace *focused_ws = seat_get_focused_workspace(seat);
+	bool focused = workspace == focused_ws;
+
+	ipc_json_start_describe_node_2(s, &workspace->node, focused);
+
+	focused_ws = output_get_active_workspace(workspace->output);
+	bool visible = workspace == focused_ws;
+
+	jswrt_kv_bool(s, "visible", visible);
+	jswrt_object_close(s); // matching  ipc_json_start_describe_node_2
+}
+
+void ipc_json_get_workspaces_2(struct jswrt_state *s) {
+	jswrt_array_open(s);
+	root_for_each_workspace(ipc_get_workspaces_callback, s);
+	jswrt_array_close(s);
+}
+
+
+static void ipc_json_describe_disabled_output_2(struct jswrt_state *s, struct sway_output *output) {
+	struct wlr_output *wlr_output = output->wlr_output;
+
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "type", "output");
+	jswrt_kv_string(s, "name", wlr_output->name);
+	jswrt_kv_bool(s, "active", false);
+	jswrt_kv_bool(s, "make", wlr_output->make);
+	jswrt_kv_bool(s, "model", wlr_output->model);
+	jswrt_kv_bool(s, "serial", wlr_output->serial);
+	jswrt_kv_array_open(s, "modes");
+	jswrt_array_close(s);
+	jswrt_kv_string(s, "percent", NULL);
+	jswrt_object_close(s);
+}
+
+void ipc_json_get_outputs_2(struct jswrt_state *s) {
+	jswrt_array_open(s);
+
+	for (int i = 0; i < root->outputs->length; ++i) {
+		struct sway_output *output = root->outputs->items[i];
+
+		// override the default focused indicator because it's set
+		// differently for the get_outputs reply
+		struct sway_seat *seat = input_manager_get_default_seat();
+		struct sway_workspace *focused_ws =
+			seat_get_focused_workspace(seat);
+		bool focused = focused_ws && output == focused_ws->output;
+
+		ipc_json_start_describe_node_2(s, &output->node, focused);
+		jswrt_object_close(s);
+	}
+	struct sway_output *output;
+	wl_list_for_each(output, &root->all_outputs, link) {
+		if (!output->enabled) {
+			ipc_json_describe_disabled_output_2(s, output);
+		}
+	}
+
+	jswrt_array_close(s);
+}
+
+void ipc_json_event_workspace_2(struct jswrt_state *s, struct sway_workspace *old,
+		struct sway_workspace *new, const char *change) {
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "change", change);
+	jswrt_key(s, "old");
+	if (old) {
+		ipc_json_describe_node_recursive_2(s, &old->node);
+	} else {
+		jswrt_string(s, NULL);
+	}
+	jswrt_key(s, "current");
+	if (new) {
+		ipc_json_describe_node_recursive_2(s, &new->node);
+	} else {
+		jswrt_string(s, NULL);
+	}
+	jswrt_object_close(s);
+}
+void ipc_json_event_window_2(struct jswrt_state *s, struct sway_container *window,
+		const char *change) {
+	jswrt_object_open(s);
+	jswrt_kv_string(s, "change", change);
+	jswrt_key(s, "container");
+	ipc_json_describe_node_recursive_2(s, &window->node);
+	jswrt_object_close(s);
 }

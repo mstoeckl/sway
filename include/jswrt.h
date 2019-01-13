@@ -58,6 +58,7 @@ void jswrt_array_open(struct jswrt_state *state);
 void jswrt_array_close(struct jswrt_state *state);
 void jswrt_bool(struct jswrt_state *state, bool value);
 void jswrt_integer(struct jswrt_state *state, long value);
+void jswrt_double(struct jswrt_state *state, double value);
 void jswrt_string(struct jswrt_state *state, const char *value);
 
 /** These functions should only be called inside an object. */
@@ -65,6 +66,7 @@ void jswrt_key(struct jswrt_state *state, const char *key);
 /**  Eqvt. to calling `jswrt_key` followed by `jswrt_X`  */
 void jswrt_kv_bool(struct jswrt_state *state, const char *key, bool value);
 void jswrt_kv_integer(struct jswrt_state *state, const char *key, long value);
+void jswrt_kv_double(struct jswrt_state *state, const char *key, double value);
 void jswrt_kv_string(struct jswrt_state *state, const char *key, const char *value);
 void jswrt_kv_object_open(struct jswrt_state *state, const char *key);
 void jswrt_kv_array_open(struct jswrt_state *state, const char *key);

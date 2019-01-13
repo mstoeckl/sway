@@ -27,6 +27,7 @@
 #include "sway/tree/root.h"
 #include "sway/tree/view.h"
 #include "sway/tree/workspace.h"
+#include "jswrt.h"
 #include "list.h"
 #include "log.h"
 #include "util.h"
@@ -294,25 +295,16 @@ void ipc_event_workspace(struct sway_workspace *old,
 		return;
 	}
 	wlr_log(WLR_DEBUG, "Sending workspace::%s event", change);
-	json_object *obj = json_object_new_object();
-	json_object_object_add(obj, "change", json_object_new_string(change));
-	if (old) {
-		json_object_object_add(obj, "old",
-				ipc_json_describe_node_recursive(&old->node));
-	} else {
-		json_object_object_add(obj, "old", NULL);
+	struct jswrt_state state1 = { .msg = NULL, .length = 0, .comma_follows = false };
+	struct jswrt_state state2 = { .msg = NULL, .length = 0, .comma_follows = false };
+	ipc_json_event_workspace_2(&state1, old, new, change);
+	state2.msg = calloc(state1.length + 1, 1);
+	if (state2.msg) {
+		ipc_json_event_workspace_2(&state2, old, new, change);
+		jswrt_null_terminate(&state2);
+		ipc_send_event(state2.msg, IPC_EVENT_WORKSPACE);
 	}
-
-	if (new) {
-		json_object_object_add(obj, "current",
-				ipc_json_describe_node_recursive(&new->node));
-	} else {
-		json_object_object_add(obj, "current", NULL);
-	}
-
-	const char *json_string = json_object_to_json_string(obj);
-	ipc_send_event(json_string, IPC_EVENT_WORKSPACE);
-	json_object_put(obj);
+	free(state2.msg);
 }
 
 void ipc_event_window(struct sway_container *window, const char *change) {
@@ -320,14 +312,16 @@ void ipc_event_window(struct sway_container *window, const char *change) {
 		return;
 	}
 	wlr_log(WLR_DEBUG, "Sending window::%s event", change);
-	json_object *obj = json_object_new_object();
-	json_object_object_add(obj, "change", json_object_new_string(change));
-	json_object_object_add(obj, "container",
-			ipc_json_describe_node_recursive(&window->node));
-
-	const char *json_string = json_object_to_json_string(obj);
-	ipc_send_event(json_string, IPC_EVENT_WINDOW);
-	json_object_put(obj);
+	struct jswrt_state state1 = { .msg = NULL, .length = 0, .comma_follows = false };
+	struct jswrt_state state2 = { .msg = NULL, .length = 0, .comma_follows = false };
+	ipc_json_event_window_2(&state1, window, change);
+	state2.msg = calloc(state1.length + 1, 1);
+	if (state2.msg) {
+		ipc_json_event_window_2(&state2, window, change);
+		jswrt_null_terminate(&state2);
+		ipc_send_event(state2.msg, IPC_EVENT_WINDOW);
+	}
+	free(state2.msg);
 }
 
 void ipc_event_barconfig_update(struct bar_config *bar) {
@@ -335,11 +329,17 @@ void ipc_event_barconfig_update(struct bar_config *bar) {
 		return;
 	}
 	wlr_log(WLR_DEBUG, "Sending barconfig_update event");
-	json_object *json = ipc_json_describe_bar_config(bar);
 
-	const char *json_string = json_object_to_json_string(json);
-	ipc_send_event(json_string, IPC_EVENT_BARCONFIG_UPDATE);
-	json_object_put(json);
+	struct jswrt_state state1 = { .msg = NULL, .length = 0, .comma_follows = false };
+	struct jswrt_state state2 = { .msg = NULL, .length = 0, .comma_follows = false };
+	ipc_json_describe_bar_config_2(&state1, bar);
+	state2.msg = calloc(state1.length + 1, 1);
+	if (state2.msg) {
+		ipc_json_describe_bar_config_2(&state2, bar);
+		jswrt_null_terminate(&state2);
+		ipc_send_event(state2.msg, IPC_EVENT_BARCONFIG_UPDATE);
+	}
+	free(state2.msg);
 }
 
 void ipc_event_bar_state_update(struct bar_config *bar) {
@@ -539,32 +539,7 @@ void ipc_client_disconnect(struct ipc_client *client) {
 	free(client);
 }
 
-static void ipc_get_workspaces_callback(struct sway_workspace *workspace,
-		void *data) {
-	json_object *workspace_json = ipc_json_describe_node(&workspace->node);
-	// override the default focused indicator because
-	// it's set differently for the get_workspaces reply
-	struct sway_seat *seat = input_manager_get_default_seat();
-	struct sway_workspace *focused_ws = seat_get_focused_workspace(seat);
-	bool focused = workspace == focused_ws;
-	json_object_object_del(workspace_json, "focused");
-	json_object_object_add(workspace_json, "focused",
-			json_object_new_boolean(focused));
-	json_object_array_add((json_object *)data, workspace_json);
 
-	focused_ws = output_get_active_workspace(workspace->output);
-	bool visible = workspace == focused_ws;
-	json_object_object_add(workspace_json, "visible",
-			json_object_new_boolean(visible));
-}
-
-static void ipc_get_marks_callback(struct sway_container *con, void *data) {
-	json_object *marks = (json_object *)data;
-	for (int i = 0; i < con->marks->length; ++i) {
-		char *mark = (char *)con->marks->items[i];
-		json_object_array_add(marks, json_object_new_string(mark));
-	}
-}
 
 void ipc_client_handle_command(struct ipc_client *client) {
 	if (!sway_assert(client != NULL, "client != NULL")) {
@@ -590,6 +565,10 @@ void ipc_client_handle_command(struct ipc_client *client) {
 	}
 	buf[client->payload_length] = '\0';
 
+	// Set up state for transfer passes
+	struct jswrt_state state1 = { .msg = NULL, .length = 0, .comma_follows = false };
+	struct jswrt_state state2 = { .msg = NULL, .length = 0, .comma_follows = false };
+
 	bool client_valid = true;
 	switch (client->current_command) {
 	case IPC_COMMAND:
@@ -606,58 +585,38 @@ void ipc_client_handle_command(struct ipc_client *client) {
 			list_del(res_list, 0);
 		}
 		list_free(res_list);
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_SEND_TICK:
 	{
 		ipc_event_tick(buf);
 		ipc_send_reply(client, "{\"success\": true}", 17);
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_OUTPUTS:
 	{
-		json_object *outputs = json_object_new_array();
-		for (int i = 0; i < root->outputs->length; ++i) {
-			struct sway_output *output = root->outputs->items[i];
-			json_object *output_json = ipc_json_describe_node(&output->node);
-
-			// override the default focused indicator because it's set
-			// differently for the get_outputs reply
-			struct sway_seat *seat = input_manager_get_default_seat();
-			struct sway_workspace *focused_ws =
-				seat_get_focused_workspace(seat);
-			bool focused = focused_ws && output == focused_ws->output;
-			json_object_object_del(output_json, "focused");
-			json_object_object_add(output_json, "focused",
-				json_object_new_boolean(focused));
-
-			json_object_array_add(outputs, output_json);
+		ipc_json_get_outputs_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_outputs_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
 		}
-		struct sway_output *output;
-		wl_list_for_each(output, &root->all_outputs, link) {
-			if (!output->enabled) {
-				json_object_array_add(outputs,
-						ipc_json_describe_disabled_output(output));
-			}
-		}
-		const char *json_string = json_object_to_json_string(outputs);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(outputs); // free
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_WORKSPACES:
 	{
-		json_object *workspaces = json_object_new_array();
-		root_for_each_workspace(ipc_get_workspaces_callback, workspaces);
-		const char *json_string = json_object_to_json_string(workspaces);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(workspaces); // free
-		goto exit_cleanup;
+		ipc_json_get_workspaces_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_workspaces_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
+		}
+		break;
 	}
 
 	case IPC_SUBSCRIBE:
@@ -709,82 +668,81 @@ void ipc_client_handle_command(struct ipc_client *client) {
 			const char tickmsg[] = "{\"first\": true, \"payload\": \"\"}";
 			ipc_send_reply(client, tickmsg, strlen(tickmsg));
 		}
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_INPUTS:
 	{
-		json_object *inputs = json_object_new_array();
-		struct sway_input_device *device = NULL;
-		wl_list_for_each(device, &server.input->devices, link) {
-			json_object_array_add(inputs, ipc_json_describe_input(device));
+		ipc_json_get_inputs_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_inputs_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
 		}
-		const char *json_string = json_object_to_json_string(inputs);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(inputs); // free
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_SEATS:
 	{
-		json_object *seats = json_object_new_array();
-		struct sway_seat *seat = NULL;
-		wl_list_for_each(seat, &server.input->seats, link) {
-			json_object_array_add(seats, ipc_json_describe_seat(seat));
+		ipc_json_get_seats_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_seats_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
 		}
-		const char *json_string = json_object_to_json_string(seats);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(seats); // free
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_TREE:
 	{
-		json_object *tree = ipc_json_describe_node_recursive(&root->node);
-		const char *json_string = json_object_to_json_string(tree);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t) strlen(json_string));
-		json_object_put(tree);
-		goto exit_cleanup;
+		ipc_json_describe_node_recursive_2(&state1, &root->node);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_describe_node_recursive_2(&state2, &root->node);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
+		}
+		break;
 	}
 
 	case IPC_GET_MARKS:
 	{
-		json_object *marks = json_object_new_array();
-		root_for_each_container(ipc_get_marks_callback, marks);
-		const char *json_string = json_object_to_json_string(marks);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(marks);
-		goto exit_cleanup;
+		ipc_json_get_marks_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_marks_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
+		}
+
+
+		break;
 	}
 
 	case IPC_GET_VERSION:
 	{
-		json_object *version = ipc_json_get_version();
-		const char *json_string = json_object_to_json_string(version);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(version); // free
-		goto exit_cleanup;
+		ipc_json_get_version_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_version_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
+		}
+		break;
 	}
 
 	case IPC_GET_BAR_CONFIG:
 	{
 		if (!buf[0]) {
-			// Send list of configured bar IDs
-			json_object *bars = json_object_new_array();
-			for (int i = 0; i < config->bars->length; ++i) {
-				struct bar_config *bar = config->bars->items[i];
-				json_object_array_add(bars, json_object_new_string(bar->id));
+			ipc_json_list_bars_2(&state1);
+			state2.msg = calloc(state1.length + 1, 1);
+			if (state2.msg) {
+				ipc_json_list_bars_2(&state2);
+				jswrt_null_terminate(&state2);
+				client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
 			}
-			const char *json_string = json_object_to_json_string(bars);
-			client_valid =
-				ipc_send_reply(client, json_string,
-					(uint32_t)strlen(json_string));
-			json_object_put(bars); // free
 		} else {
 			// Send particular bar's details
 			struct bar_config *bar = NULL;
@@ -801,55 +759,56 @@ void ipc_client_handle_command(struct ipc_client *client) {
 					ipc_send_reply(client, error, (uint32_t)strlen(error));
 				goto exit_cleanup;
 			}
-			json_object *json = ipc_json_describe_bar_config(bar);
-			const char *json_string = json_object_to_json_string(json);
-			client_valid =
-				ipc_send_reply(client, json_string,
-					(uint32_t)strlen(json_string));
-			json_object_put(json); // free
+			ipc_json_describe_bar_config_2(&state1, bar);
+			state2.msg = calloc(state1.length + 1, 1);
+			if (state2.msg) {
+				ipc_json_describe_bar_config_2(&state2, bar);
+				jswrt_null_terminate(&state2);
+				client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
+			}
 		}
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_BINDING_MODES:
 	{
-		json_object *modes = json_object_new_array();
-		for (int i = 0; i < config->modes->length; i++) {
-			struct sway_mode *mode = config->modes->items[i];
-			json_object_array_add(modes, json_object_new_string(mode->name));
+		ipc_json_get_binding_modes_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_binding_modes_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
 		}
-		const char *json_string = json_object_to_json_string(modes);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(modes); // free
-		goto exit_cleanup;
+		break;
 	}
 
 	case IPC_GET_CONFIG:
 	{
-		json_object *json = json_object_new_object();
-		json_object_object_add(json, "config", json_object_new_string(config->current_config));
-		const char *json_string = json_object_to_json_string(json);
-		client_valid =
-			ipc_send_reply(client, json_string, (uint32_t)strlen(json_string));
-		json_object_put(json); // free
-		goto exit_cleanup;
-    }
+		ipc_json_get_config_2(&state1);
+		state2.msg = calloc(state1.length + 1, 1);
+		if (state2.msg) {
+			ipc_json_get_config_2(&state2);
+			jswrt_null_terminate(&state2);
+			client_valid = ipc_send_reply(client, state2.msg, state2.length - 1);
+		}
+		break;
+	}
 
 	case IPC_SYNC:
 	{
 		// It was decided sway will not support this, just return success:false
 		const char msg[] = "{\"success\": false}";
 		ipc_send_reply(client, msg, strlen(msg));
-		goto exit_cleanup;
+		break;
 	}
 
 	default:
 		wlr_log(WLR_INFO, "Unknown IPC command type %i", client->current_command);
-		goto exit_cleanup;
+		break;
 	}
 
 exit_cleanup:
+	free(state2.msg);
 	if (client_valid) {
 		client->payload_length = 0;
 	}

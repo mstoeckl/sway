@@ -59,6 +59,13 @@ void jswrt_integer(struct jswrt_state *state, long value) {
 	jswrt_copy(state, buf);
 	state->comma_follows = true;
 }
+void jswrt_double(struct jswrt_state *state, double value) {
+	jswrt_optional_comma(state);
+	char buf[256];
+	sprintf(buf, "%g", value);
+	jswrt_copy(state, buf);
+	state->comma_follows = true;
+}
 void jswrt_string(struct jswrt_state *state, const char *value) {
 	jswrt_optional_comma(state);
 	if (value == NULL) {
@@ -110,6 +117,10 @@ void jswrt_kv_bool(struct jswrt_state *state, const char *key, bool value) {
 void jswrt_kv_integer(struct jswrt_state *state, const char *key, long value) {
 	jswrt_key(state, key);
 	jswrt_integer(state, value);
+}
+void jswrt_kv_double(struct jswrt_state *state, const char *key, double value) {
+	jswrt_key(state, key);
+	jswrt_double(state, value);
 }
 void jswrt_kv_string(struct jswrt_state *state, const char *key, const char *value) {
 	jswrt_key(state, key);
