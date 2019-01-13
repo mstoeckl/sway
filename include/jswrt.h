@@ -43,6 +43,8 @@
   * 	jswrt_object_close(s);
   * 	jswrt_array_close(s);
   *
+  * The provided state->msg buffer should always have room for a null
+  * terminator, as e.g. jswrt_double may overwrite by one character.
   */
 struct jswrt_state {
 	char* msg;
