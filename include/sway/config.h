@@ -192,6 +192,11 @@ struct workspace_config {
 	struct side_gaps gaps_outer;
 };
 
+struct maybe_color {
+	uint32_t value;
+	bool is_set;
+};
+
 struct bar_config {
 	/**
 	 * One of "dock", "hide", "invisible"
@@ -235,27 +240,27 @@ struct bar_config {
 	int status_padding;
 	int status_edge_padding;
 	struct {
-		char *background;
-		char *statusline;
-		char *separator;
-		char *focused_background;
-		char *focused_statusline;
-		char *focused_separator;
-		char *focused_workspace_border;
-		char *focused_workspace_bg;
-		char *focused_workspace_text;
-		char *active_workspace_border;
-		char *active_workspace_bg;
-		char *active_workspace_text;
-		char *inactive_workspace_border;
-		char *inactive_workspace_bg;
-		char *inactive_workspace_text;
-		char *urgent_workspace_border;
-		char *urgent_workspace_bg;
-		char *urgent_workspace_text;
-		char *binding_mode_border;
-		char *binding_mode_bg;
-		char *binding_mode_text;
+		struct maybe_color background;
+		struct maybe_color statusline;
+		struct maybe_color separator;
+		struct maybe_color focused_background;
+		struct maybe_color focused_statusline;
+		struct maybe_color focused_separator;
+		struct maybe_color focused_workspace_border;
+		struct maybe_color focused_workspace_bg;
+		struct maybe_color focused_workspace_text;
+		struct maybe_color active_workspace_border;
+		struct maybe_color active_workspace_bg;
+		struct maybe_color active_workspace_text;
+		struct maybe_color inactive_workspace_border;
+		struct maybe_color inactive_workspace_bg;
+		struct maybe_color inactive_workspace_text;
+		struct maybe_color urgent_workspace_border;
+		struct maybe_color urgent_workspace_bg;
+		struct maybe_color urgent_workspace_text;
+		struct maybe_color binding_mode_border;
+		struct maybe_color binding_mode_bg;
+		struct maybe_color binding_mode_text;
 	} colors;
 
 #if HAVE_TRAY

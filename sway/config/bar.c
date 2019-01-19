@@ -57,27 +57,6 @@ void free_bar_config(struct bar_config *bar) {
 	if (bar->pid != 0) {
 		terminate_swaybar(bar->pid);
 	}
-	free(bar->colors.background);
-	free(bar->colors.statusline);
-	free(bar->colors.separator);
-	free(bar->colors.focused_background);
-	free(bar->colors.focused_statusline);
-	free(bar->colors.focused_separator);
-	free(bar->colors.focused_workspace_border);
-	free(bar->colors.focused_workspace_bg);
-	free(bar->colors.focused_workspace_text);
-	free(bar->colors.active_workspace_border);
-	free(bar->colors.active_workspace_bg);
-	free(bar->colors.active_workspace_text);
-	free(bar->colors.inactive_workspace_border);
-	free(bar->colors.inactive_workspace_bg);
-	free(bar->colors.inactive_workspace_text);
-	free(bar->colors.urgent_workspace_border);
-	free(bar->colors.urgent_workspace_bg);
-	free(bar->colors.urgent_workspace_text);
-	free(bar->colors.binding_mode_border);
-	free(bar->colors.binding_mode_bg);
-	free(bar->colors.binding_mode_text);
 #if HAVE_TRAY
 	list_free_items_and_destroy(bar->tray_outputs);
 	free(bar->icon_theme);
@@ -123,60 +102,28 @@ struct bar_config *default_bar_config(void) {
 	if (!(bar->bindings = create_list())) {
 		goto cleanup;
 	}
-	// set default colors
-	if (!(bar->colors.background = strndup("#000000ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.statusline = strndup("#ffffffff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.separator = strndup("#666666ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.focused_workspace_border = strndup("#4c7899ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.focused_workspace_bg = strndup("#285577ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.focused_workspace_text = strndup("#ffffffff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.active_workspace_border = strndup("#333333ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.active_workspace_bg = strndup("#5f676aff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.active_workspace_text = strndup("#ffffffff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.inactive_workspace_border = strndup("#333333ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.inactive_workspace_bg = strndup("#222222ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.inactive_workspace_text = strndup("#888888ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.urgent_workspace_border = strndup("#2f343aff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.urgent_workspace_bg = strndup("#900000ff", 9))) {
-		goto cleanup;
-	}
-	if (!(bar->colors.urgent_workspace_text = strndup("#ffffffff", 9))) {
-		goto cleanup;
-	}
-	// if the following colors stay undefined, they fall back to background,
-	// statusline, separator and urgent_workspace_*.
-	bar->colors.focused_background = NULL;
-	bar->colors.focused_statusline = NULL;
-	bar->colors.focused_separator = NULL;
-	bar->colors.binding_mode_border = NULL;
-	bar->colors.binding_mode_bg = NULL;
-	bar->colors.binding_mode_text = NULL;
+	// Set default colors. For example, 0x000000ff is "#000000ff".
+	// By default (calloc => .is_set=0), colors are initially unmodified
+	bar->colors.background.value = 0x000000ff;
+	bar->colors.statusline.value = 0xffffffff;
+	bar->colors.separator.value = 0x666666ff;
+	bar->colors.focused_workspace_border.value = 0x4c7899ff;
+	bar->colors.focused_workspace_bg.value = 0x285577ff;
+	bar->colors.focused_workspace_text.value = 0xffffffff;
+	bar->colors.active_workspace_border.value = 0x333333ff;
+	bar->colors.active_workspace_bg.value = 0x5f676aff;
+	bar->colors.active_workspace_text.value = 0xffffffff;
+	bar->colors.inactive_workspace_border.value = 0x333333ff;
+	bar->colors.inactive_workspace_bg.value = 0x222222ff;
+	bar->colors.inactive_workspace_text.value = 0x888888ff;
+	bar->colors.urgent_workspace_border.value = 0x2f343aff;
+	bar->colors.urgent_workspace_bg.value = 0x900000ff;
+	bar->colors.urgent_workspace_text.value = 0xffffffff;
+
+	// if the following colors stay unmodified, they fall back to background,
+	// statusline, separator and urgent_workspace_*:
+	//     focused_background, focused_statusline, focused_separator
+	//     binding_mode_border, binding_mode_bg, binding_mode_text
 
 #if HAVE_TRAY
 	bar->tray_padding = 2;
@@ -258,3 +205,4 @@ void load_swaybars(void) {
 		load_swaybar(bar);
 	}
 }
+

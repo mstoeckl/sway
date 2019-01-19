@@ -674,6 +674,12 @@ static uint32_t event_to_x11_button(uint32_t event) {
 	}
 }
 
+static json_object *json_object_from_color(uint32_t value) {
+	char buf[10];
+	sprintf(buf, "#%08" PRIx32, value);
+	return json_object_new_string(buf);
+}
+
 json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
 	if (!sway_assert(bar, "Bar must not be NULL")) {
 		return NULL;
@@ -729,86 +735,86 @@ json_object *ipc_json_describe_bar_config(struct bar_config *bar) {
 
 	json_object *colors = json_object_new_object();
 	json_object_object_add(colors, "background",
-			json_object_new_string(bar->colors.background));
+			json_object_from_color(bar->colors.background.value));
 	json_object_object_add(colors, "statusline",
-			json_object_new_string(bar->colors.statusline));
+			json_object_from_color(bar->colors.statusline.value));
 	json_object_object_add(colors, "separator",
-			json_object_new_string(bar->colors.separator));
+			json_object_from_color(bar->colors.separator.value));
 
-	if (bar->colors.focused_background) {
+	if (bar->colors.focused_background.is_set) {
 		json_object_object_add(colors, "focused_background",
-				json_object_new_string(bar->colors.focused_background));
+				json_object_from_color(bar->colors.focused_background.value));
 	} else {
 		json_object_object_add(colors, "focused_background",
-				json_object_new_string(bar->colors.background));
+				json_object_from_color(bar->colors.background.value));
 	}
 
-	if (bar->colors.focused_statusline) {
+	if (bar->colors.focused_statusline.is_set) {
 		json_object_object_add(colors, "focused_statusline",
-				json_object_new_string(bar->colors.focused_statusline));
+				json_object_from_color(bar->colors.focused_statusline.value));
 	} else {
 		json_object_object_add(colors, "focused_statusline",
-				json_object_new_string(bar->colors.statusline));
+				json_object_from_color(bar->colors.statusline.value));
 	}
 
-	if (bar->colors.focused_separator) {
+	if (bar->colors.focused_separator.is_set) {
 		json_object_object_add(colors, "focused_separator",
-				json_object_new_string(bar->colors.focused_separator));
+				json_object_from_color(bar->colors.focused_separator.value));
 	} else {
 		json_object_object_add(colors, "focused_separator",
-				json_object_new_string(bar->colors.separator));
+				json_object_from_color(bar->colors.separator.value));
 	}
 
 	json_object_object_add(colors, "focused_workspace_border",
-			json_object_new_string(bar->colors.focused_workspace_border));
+			json_object_from_color(bar->colors.focused_workspace_border.value));
 	json_object_object_add(colors, "focused_workspace_bg",
-			json_object_new_string(bar->colors.focused_workspace_bg));
+			json_object_from_color(bar->colors.focused_workspace_bg.value));
 	json_object_object_add(colors, "focused_workspace_text",
-			json_object_new_string(bar->colors.focused_workspace_text));
+			json_object_from_color(bar->colors.focused_workspace_text.value));
 
 	json_object_object_add(colors, "inactive_workspace_border",
-			json_object_new_string(bar->colors.inactive_workspace_border));
+			json_object_from_color(bar->colors.inactive_workspace_border.value));
 	json_object_object_add(colors, "inactive_workspace_bg",
-			json_object_new_string(bar->colors.inactive_workspace_bg));
+			json_object_from_color(bar->colors.inactive_workspace_bg.value));
 	json_object_object_add(colors, "inactive_workspace_text",
-			json_object_new_string(bar->colors.inactive_workspace_text));
+			json_object_from_color(bar->colors.inactive_workspace_text.value));
 
 	json_object_object_add(colors, "active_workspace_border",
-			json_object_new_string(bar->colors.active_workspace_border));
+			json_object_from_color(bar->colors.active_workspace_border.value));
 	json_object_object_add(colors, "active_workspace_bg",
-			json_object_new_string(bar->colors.active_workspace_bg));
+			json_object_from_color(bar->colors.active_workspace_bg.value));
 	json_object_object_add(colors, "active_workspace_text",
-			json_object_new_string(bar->colors.active_workspace_text));
+			json_object_from_color(bar->colors.active_workspace_text.value));
 
 	json_object_object_add(colors, "urgent_workspace_border",
-			json_object_new_string(bar->colors.urgent_workspace_border));
+			json_object_from_color(bar->colors.urgent_workspace_border.value));
 	json_object_object_add(colors, "urgent_workspace_bg",
-			json_object_new_string(bar->colors.urgent_workspace_bg));
+			json_object_from_color(bar->colors.urgent_workspace_bg.value));
 	json_object_object_add(colors, "urgent_workspace_text",
-			json_object_new_string(bar->colors.urgent_workspace_text));
+			json_object_from_color(bar->colors.urgent_workspace_text.value));
 
-	if (bar->colors.binding_mode_border) {
+	if (bar->colors.binding_mode_border.is_set) {
 		json_object_object_add(colors, "binding_mode_border",
-				json_object_new_string(bar->colors.binding_mode_border));
+				json_object_from_color(bar->colors.binding_mode_border.value));
 	} else {
 		json_object_object_add(colors, "binding_mode_border",
-				json_object_new_string(bar->colors.urgent_workspace_border));
+				json_object_from_color(bar->colors.urgent_workspace_border.value));
 	}
 
-	if (bar->colors.binding_mode_bg) {
+	if (bar->colors.binding_mode_bg.is_set) {
 		json_object_object_add(colors, "binding_mode_bg",
-				json_object_new_string(bar->colors.binding_mode_bg));
+				json_object_from_color(bar->colors.binding_mode_bg.value));
 	} else {
 		json_object_object_add(colors, "binding_mode_bg",
-				json_object_new_string(bar->colors.urgent_workspace_bg));
+				json_object_from_color(bar->colors.urgent_workspace_bg.value));
 	}
 
-	if (bar->colors.binding_mode_text) {
+	if (bar->colors.binding_mode_text.is_set) {
 		json_object_object_add(colors, "binding_mode_text",
-				json_object_new_string(bar->colors.binding_mode_text));
+				json_object_from_color(bar->colors.binding_mode_text.value));
 	} else {
 		json_object_object_add(colors, "binding_mode_text",
-				json_object_new_string(bar->colors.urgent_workspace_text));
+				json_object_from_color(bar->colors.urgent_workspace_text.value));
 	}
 
 	json_object_object_add(json, "colors", colors);
