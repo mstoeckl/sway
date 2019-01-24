@@ -7,19 +7,31 @@
 list_t *create_list(void) {
 	list_t *list = malloc(sizeof(list_t));
 	if (!list) {
+		sway_log(SWAY_ERROR, "Unable to allocate memory for list");
 		return NULL;
 	}
 	list->capacity = 10;
 	list->length = 0;
 	list->items = malloc(sizeof(void*) * list->capacity);
+	if (!list->items) {
+		free(list);
+		sway_log(SWAY_ERROR, "Unable to allocate memory for list");
+		return NULL;
+	}
 	return list;
 }
 
-static void list_resize(list_t *list) {
+static bool list_resize(list_t *list) {
 	if (list->length == list->capacity) {
+		void *items = realloc(list->items, sizeof(void *) * list->capacity * 2);
+		if (!items) {
+			sway_log(SWAY_ERROR, "Unable to allocate memory to resize list");
+			return false;
+		}
 		list->capacity *= 2;
-		list->items = realloc(list->items, sizeof(void*) * list->capacity);
+		list->items = items;
 	}
+	return true;
 }
 
 void list_free(list_t *list) {
@@ -30,16 +42,22 @@ void list_free(list_t *list) {
 	free(list);
 }
 
-void list_add(list_t *list, void *item) {
-	list_resize(list);
-	list->items[list->length++] = item;
+bool list_add(list_t *list, void *item) {
+	bool success = list_resize(list);
+	if (success) {
+		list->items[list->length++] = item;
+	}
+	return success;
 }
 
-void list_insert(list_t *list, int index, void *item) {
-	list_resize(list);
-	memmove(&list->items[index + 1], &list->items[index], sizeof(void*) * (list->length - index));
-	list->length++;
-	list->items[index] = item;
+bool list_insert(list_t *list, int index, void *item) {
+	bool success = list_resize(list);
+	if (success) {
+		memmove(&list->items[index + 1], &list->items[index], sizeof(void*) * (list->length - index));
+		list->length++;
+		list->items[index] = item;
+	}
+	return success;
 }
 
 void list_del(list_t *list, int index) {
@@ -47,10 +65,27 @@ void list_del(list_t *list, int index) {
 	memmove(&list->items[index], &list->items[index + 1], sizeof(void*) * (list->length - index));
 }
 
-void list_cat(list_t *list, list_t *source) {
-	for (int i = 0; i < source->length; ++i) {
-		list_add(list, source->items[i]);
+bool list_cat(list_t *list, const list_t *source) {
+	if (list->length + source->length > list->capacity) {
+		// Try to resize to fit both lists
+		int max_cap = list->capacity > source->capacity ?
+			list->capacity : source->capacity;
+		if (max_cap < list->length + source->length) {
+			max_cap *= 2;
+		}
+		void *items = realloc(list->items, sizeof(void *) * max_cap);
+		if (!items) {
+			sway_log(SWAY_ERROR, "Unable to allocate memory to resize list");
+			return false;
+		}
+		list->capacity = max_cap;
+		list->items = items;
 	}
+
+	for (int i = 0; i < source->length; ++i) {
+		list->items[list->length++] = source->items[i];
+	}
+	return true;
 }
 
 void list_qsort(list_t *list, int compare(const void *left, const void *right)) {
@@ -92,8 +127,8 @@ void list_move_to_end(list_t *list, void *item) {
 	if (!sway_assert(i < list->length, "Item not found in list")) {
 		return;
 	}
-	list_del(list, i);
-	list_add(list, item);
+	memmove(&list->items[i], &list->items[i + 1], sizeof(void*) * (list->length - i - 1));
+	list->items[list->length - 1] = item;
 }
 
 static void list_rotate(list_t *list, int from, int to) {
