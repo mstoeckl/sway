@@ -9,7 +9,7 @@
 #include "log.h"
 #include "stringop.h"
 
-static struct cmd_results *binding_add(struct bar_binding *binding,
+static struct cmd_results *bar_binding_add(struct bar_binding *binding,
 		list_t *mode_bindings) {
 	const char *name = get_mouse_button_name(binding->button);
 	bool overwritten = false;
@@ -35,7 +35,7 @@ static struct cmd_results *binding_add(struct bar_binding *binding,
 	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
-static struct cmd_results *binding_remove(struct bar_binding *binding,
+static struct cmd_results *bar_binding_remove(struct bar_binding *binding,
 		list_t *mode_bindings) {
 	const char *name = get_mouse_button_name(binding->button);
 	for (int i = 0; i < mode_bindings->length; i++) {
@@ -108,11 +108,11 @@ static struct cmd_results *bar_cmd_bind(int argc, char **argv, bool code,
 	}
 	list_t *bindings = config->current_bar->bindings;
 	if (unbind) {
-		return binding_remove(binding, bindings);
+		return bar_binding_remove(binding, bindings);
 	}
 
 	binding->command = join_args(argv + 1, argc - 1);
-	return binding_add(binding, bindings);
+	return bar_binding_add(binding, bindings);
 }
 
 struct cmd_results *bar_cmd_bindcode(int argc, char **argv) {
