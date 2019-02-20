@@ -577,6 +577,8 @@ void merge_input_config(struct input_config *dst, struct input_config *src);
 
 struct input_config *store_input_config(struct input_config *ic);
 
+struct xkb_rule_names input_config_get_rule_names(struct input_config *ic);
+
 void free_input_config(struct input_config *ic);
 
 int seat_name_cmp(const void *item, const void *data);
@@ -661,7 +663,7 @@ void binding_add(struct sway_binding *binding, list_t *mode_bindings,
  */
 bool translate_binding(struct sway_binding *binding);
 
-void translate_keysyms(const char *layout);
+void translate_keysyms(struct input_config *input_config);
 
 /* Global config singleton. */
 extern struct sway_config *config;
