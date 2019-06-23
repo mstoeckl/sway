@@ -9,39 +9,14 @@ else
 	code_type = 'code'
 endif
 
-wayland_scanner_code = generator(
-	wayland_scanner,
-	output: '@BASENAME@-protocol.c',
-	arguments: [code_type, '@INPUT@', '@OUTPUT@'],
-)
-
-wayland_scanner_client = generator(
-	wayland_scanner,
-	output: '@BASENAME@-client-protocol.h',
-	arguments: ['client-header', '@INPUT@', '@OUTPUT@'],
-)
-
-wayland_scanner_server = generator(
-	wayland_scanner,
-	output: '@BASENAME@-protocol.h',
-	arguments: ['server-header', '@INPUT@', '@OUTPUT@'],
-)
-
-client_protocols = [
-	[wl_protocol_dir, 'stable/xdg-shell/xdg-shell.xml'],
-	[wl_protocol_dir, 'unstable/xdg-output/xdg-output-unstable-v1.xml'],
-	['wlr-layer-shell-unstable-v1.xml'],
-	['idle.xml'],
-	['wlr-input-inhibitor-unstable-v1.xml'],
-]
-
-server_protocols = [
-	[wl_protocol_dir, 'stable/xdg-shell/xdg-shell.xml'],
-	[wl_protocol_dir, 'unstable/xdg-shell/xdg-shell-unstable-v6.xml'],
-	[wl_protocol_dir, 'unstable/xdg-output/xdg-output-unstable-v1.xml'],
-	[wl_protocol_dir, 'unstable/pointer-constraints/pointer-constraints-unstable-v1.xml'],
-	['wlr-layer-shell-unstable-v1.xml'],
-	['wlr-input-inhibitor-unstable-v1.xml'],
+protocols = [
+	['both', [wl_protocol_dir, 'stable/xdg-shell', 'xdg-shell']],
+	['server', [wl_protocol_dir, 'unstable/xdg-shell', 'xdg-shell-unstable-v6']],
+	['both', [wl_protocol_dir, 'unstable/xdg-output', 'xdg-output-unstable-v1']],
+	['server', [wl_protocol_dir, 'unstable/pointer-constraints', 'pointer-constraints-unstable-v1']],
+	['client', ['idle']],
+	['both', ['wlr-layer-shell-unstable-v1']],
+	['both', ['wlr-input-inhibitor-unstable-v1']],
 ]
 
 client_protos_src = []
@@ -50,16 +25,38 @@ client_protos_headers = []
 server_protos_src = []
 server_protos_headers = []
 
-foreach p : client_protocols
-	xml = join_paths(p)
-	client_protos_src += wayland_scanner_code.process(xml)
-	client_protos_headers += wayland_scanner_client.process(xml)
-endforeach
+foreach p : protocols
+	path_parts = p[1]
+	xml = join_paths(path_parts) + '.xml'
+	base_name = path_parts[-1]
+	users = p[0]
 
-foreach p : server_protocols
-	xml = join_paths(p)
-	server_protos_src += wayland_scanner_code.process(xml)
-	server_protos_headers += wayland_scanner_server.process(xml)
+	src = custom_target(
+		xml.underscorify() + '_protocol_c',
+		output : '@0@-protocol.c'.format(base_name),
+		input : xml,
+		command : [wayland_scanner, code_type, '@INPUT@', '@OUTPUT@'],
+	)
+
+	if users == 'client' or users == 'both'
+		client_protos_src += src
+		client_protos_headers += custom_target(
+			xml.underscorify() + '_client_h',
+			output : '@0@-client-protocol.h'.format(base_name),
+			input : xml,
+			command : [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+		)
+	endif
+
+	if users == 'server' or users == 'both'
+		server_protos_src += src
+		server_protos_headers += custom_target(
+			xml.underscorify() + '_server_h',
+			output : '@0@-protocol.h'.format(base_name),
+			input : xml,
+			command : [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+		)
+	endif
 endforeach
 
 lib_client_protos = static_library(
