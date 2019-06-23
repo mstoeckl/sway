@@ -13,8 +13,6 @@ project(
 
 add_project_arguments(
 	[
-		'-DSWAY_SRC_DIR="@0@"'.format(meson.current_source_dir()),
-
 		'-DWL_HIDE_DEPRECATED',
 		'-DWLR_USE_UNSTABLE',
 
@@ -141,6 +139,26 @@ if git.found()
 	endif
 endif
 add_project_arguments('-DSWAY_VERSION=@0@'.format(version), language: 'c')
+
+# Strip path prefixes from the code if possible, otherwise hide them
+if cc.has_argument('-fmacro-prefix-map=/prefix/to/hide=')
+	prefix_finder = 'import os.path; print(os.path.join(os.path.relpath(\'@0@\', \'@1@\'),\'\'))'
+	r = run_command('python3', '-c', prefix_finder.format(meson.source_root(), meson.build_root()))
+	relative_dir = r.stdout().strip()
+	add_project_arguments(
+		'-fmacro-prefix-map=@0@='.format(relative_dir),
+		language: 'c',
+	)
+else
+	length_finder = 'import os.path; print(len(os.path.join(os.path.relpath(\'@0@\', \'@1@\'),\'\')))'
+	r = run_command('python3', '-c', length_finder.format(meson.source_root(), meson.build_root()))
+	rel_src_dir_length = r.stdout().strip()
+	add_project_arguments(
+		'-DSWAY_SRC_DIR_LENGTH=@0@'.format(rel_src_dir_length),
+		language: 'c',
+	)
+endif
+
 
 sway_inc = include_directories('include')
 
