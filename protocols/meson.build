@@ -73,7 +73,7 @@ client_protos = declare_dependency(
 lib_server_protos = static_library(
 	'server_protos',
 	server_protos_src + server_protos_headers,
-	dependencies: [wayland_client]
+	dependencies: [wayland_server]
 ) # for the include directory
 
 server_protos = declare_dependency(
