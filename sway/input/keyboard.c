@@ -313,7 +313,7 @@ void sway_keyboard_disarm_key_repeat(struct sway_keyboard *keyboard) {
 		return;
 	}
 	keyboard->repeat_binding = NULL;
-	if (wl_event_source_timer_update(keyboard->key_repeat_source, 0) < 0) {
+	if (delayed_event_disarm(&keyboard->key_repeat_event) < 0) {
 		sway_log(SWAY_DEBUG, "failed to disarm key repeat timer");
 	}
 }
@@ -410,8 +410,8 @@ static void handle_key_event(struct sway_keyboard *keyboard,
 	// binding may remove the keyboard, the timer needs to be updated first
 	if (binding && wlr_device->keyboard->repeat_info.delay > 0) {
 		keyboard->repeat_binding = binding;
-		if (wl_event_source_timer_update(keyboard->key_repeat_source,
-				wlr_device->keyboard->repeat_info.delay) < 0) {
+		if (delayed_event_schedule_from_now(&keyboard->key_repeat_event,
+				wlr_device->keyboard->repeat_info.delay*1000000L) < 0) {
 			sway_log(SWAY_DEBUG, "failed to set key repeat timer");
 		}
 	} else if (keyboard->repeat_binding) {
@@ -469,15 +469,17 @@ static void handle_keyboard_group_key(struct wl_listener *listener,
 	handle_key_event(sway_group->seat_device->keyboard, data);
 }
 
-static int handle_keyboard_repeat(void *data) {
-	struct sway_keyboard *keyboard = (struct sway_keyboard *)data;
+static void handle_keyboard_repeat(struct delayed_event *evt, struct timespec t) {
+	struct sway_keyboard *keyboard =
+		wl_container_of(evt, keyboard, key_repeat_event);
+
 	struct wlr_keyboard *wlr_device =
 			keyboard->seat_device->input_device->wlr_device->keyboard;
 	if (keyboard->repeat_binding) {
 		if (wlr_device->repeat_info.rate > 0) {
 			// We queue the next event first, as the command might cancel it
-			if (wl_event_source_timer_update(keyboard->key_repeat_source,
-					1000 / wlr_device->repeat_info.rate) < 0) {
+			if (delayed_event_schedule_from_now(&keyboard->key_repeat_event,
+				1000000000L / wlr_device->repeat_info.rate) < 0) {
 				sway_log(SWAY_DEBUG, "failed to update key repeat timer");
 			}
 		}
@@ -486,7 +488,6 @@ static int handle_keyboard_repeat(void *data) {
 				keyboard->repeat_binding);
 		transaction_commit_dirty();
 	}
-	return 0;
 }
 
 static void determine_bar_visibility(uint32_t modifiers) {
@@ -552,14 +553,18 @@ struct sway_keyboard *sway_keyboard_create(struct sway_seat *seat,
 		return NULL;
 	}
 
+	if (delayed_event_init(&keyboard->key_repeat_event, &server.event_scheduler,
+		handle_keyboard_repeat) < 0){
+		sway_log(SWAY_ERROR, "Failed to set up key repeat event");
+		free(keyboard);
+		return NULL;
+	}
+
 	keyboard->seat_device = device;
 	device->keyboard = keyboard;
 
 	wl_list_init(&keyboard->keyboard_key.link);
 	wl_list_init(&keyboard->keyboard_modifiers.link);
-
-	keyboard->key_repeat_source = wl_event_loop_add_timer(server.wl_event_loop,
-			handle_keyboard_repeat, keyboard);
 
 	return keyboard;
 }
@@ -940,6 +945,6 @@ void sway_keyboard_destroy(struct sway_keyboard *keyboard) {
 	wl_list_remove(&keyboard->keyboard_key.link);
 	wl_list_remove(&keyboard->keyboard_modifiers.link);
 	sway_keyboard_disarm_key_repeat(keyboard);
-	wl_event_source_remove(keyboard->key_repeat_source);
+	delayed_event_destroy(&keyboard->key_repeat_event);
 	free(keyboard);
 }

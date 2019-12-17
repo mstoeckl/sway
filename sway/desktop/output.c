@@ -430,12 +430,9 @@ static void send_frame_done_iterator(struct sway_output *output, struct sway_vie
 		wlr_surface_send_frame_done(surface, &data->when);
 	} else {
 		struct sway_surface *sway_surface = surface->data;
-		wl_event_source_timer_update(sway_surface->frame_done_timer, delay);
+		// TODO: use absolute (struct timespec) deadlines instead
+		delayed_event_schedule_from_now(&sway_surface->frame_done_event, delay * 1000000L);
 	}
-}
-
-static void send_frame_done(struct sway_output *output, struct send_frame_done_data *data) {
-	output_for_each_surface(output, send_frame_done_iterator, data);
 }
 
 static void count_surface_iterator(struct sway_output *output, struct sway_view *view,
@@ -507,10 +504,10 @@ static bool scan_out_fullscreen_view(struct sway_output *output,
 	return wlr_output_commit(wlr_output);
 }
 
-int output_repaint_timer_handler(void *data) {
-	struct sway_output *output = data;
+void output_repaint_timer_handler(struct delayed_event *evt, struct timespec t) {
+	struct sway_output *output = wl_container_of(evt, output, repaint_event);
 	if (output->wlr_output == NULL) {
-		return 0;
+		return;
 	}
 
 	output->wlr_output->frame_pending = false;
@@ -520,7 +517,7 @@ int output_repaint_timer_handler(void *data) {
 
 	struct sway_workspace *workspace = output->current.active_workspace;
 	if (workspace == NULL) {
-		return 0;
+		return;
 	}
 
 	struct sway_container *fullscreen_con = root->fullscreen_global;
@@ -543,7 +540,7 @@ int output_repaint_timer_handler(void *data) {
 		last_scanned_out = scanned_out;
 
 		if (scanned_out) {
-			return 0;
+			return;
 		}
 	}
 
@@ -552,7 +549,7 @@ int output_repaint_timer_handler(void *data) {
 	pixman_region32_init(&damage);
 	if (!wlr_output_damage_attach_render(output->damage,
 			&needs_frame, &damage)) {
-		return 0;
+		return;
 	}
 
 	if (needs_frame) {
@@ -566,7 +563,7 @@ int output_repaint_timer_handler(void *data) {
 
 	pixman_region32_fini(&damage);
 
-	return 0;
+	return;
 }
 
 static void damage_handle_frame(struct wl_listener *listener, void *user_data) {
@@ -621,17 +618,18 @@ static void damage_handle_frame(struct wl_listener *listener, void *user_data) {
 	// If the delay is less than 1 millisecond (which is the least we can wait)
 	// then just render right away.
 	if (delay < 1) {
-		output_repaint_timer_handler(output);
+		struct timespec na;
+		output_repaint_timer_handler(&output->repaint_event, na);
 	} else {
 		output->wlr_output->frame_pending = true;
-		wl_event_source_timer_update(output->repaint_timer, delay);
+		delayed_event_schedule_from_now(&output->repaint_event, delay * 1000000L);
 	}
 
 	// Send frame done to all visible surfaces
 	struct send_frame_done_data data = {0};
 	clock_gettime(CLOCK_MONOTONIC, &data.when);
 	data.msec_until_refresh = msec_until_refresh;
-	send_frame_done(output, &data);
+	output_for_each_surface(output, send_frame_done_iterator, &data);
 }
 
 void output_damage_whole(struct sway_output *output) {
@@ -888,8 +886,9 @@ void handle_new_output(struct wl_listener *listener, void *data) {
 	wl_signal_add(&output->damage->events.destroy, &output->damage_destroy);
 	output->damage_destroy.notify = damage_handle_destroy;
 
-	output->repaint_timer = wl_event_loop_add_timer(server->wl_event_loop,
-		output_repaint_timer_handler, output);
+	if (delayed_event_init(&output->repaint_event, &server->event_scheduler, output_repaint_timer_handler) < 0) {
+		sway_log(SWAY_ERROR, "Failed to set up output repaint timer");
+	}
 
 	struct output_config *oc = find_output_config(output);
 	if (!oc || oc->enabled) {

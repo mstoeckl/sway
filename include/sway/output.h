@@ -56,7 +56,7 @@ struct sway_output {
 	struct timespec last_presentation;
 	uint32_t refresh_nsec;
 	int max_render_time; // In milliseconds
-	struct wl_event_source *repaint_timer;
+	struct delayed_event repaint_event;
 	bool surface_needs_frame;
 };
 
@@ -78,7 +78,7 @@ typedef void (*sway_surface_iterator_func_t)(struct sway_output *output, struct 
 	struct wlr_surface *surface, struct wlr_box *box, float rotation,
 	void *user_data);
 
-int output_repaint_timer_handler(void *data);
+void output_repaint_timer_handler(struct delayed_event* e, struct timespec t);
 
 void output_damage_whole(struct sway_output *output);
 

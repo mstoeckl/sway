@@ -19,6 +19,58 @@
 #include "sway/xwayland.h"
 #endif
 
+struct delay_scheduler;
+struct delayed_event {
+	struct timespec deadline;
+	// TODO: should there be a return code? what would a fatal error be?
+	void (*event) (struct delayed_event *evt, struct timespec time);
+	struct delay_scheduler *scheduler;
+	int heap_idx;
+};
+struct delay_scheduler {
+	// An index of all connected events, with active events in heap-order
+	struct delayed_event **entries;
+	int entry_count, active_count, space;
+
+	// TODO: replace this with something that provides lower level access to
+	// the timerfd, to get a) absolute timeouts b) acceptable resolution
+	struct wl_event_source *timer;
+
+	// TODO: actually enforce that the underlying timer uses this clock
+	clockid_t presentation_clock;
+};
+
+/**
+ * Connect a `struct delayed_event` to the matching `struct delay_scheduler`.
+ * If this fails (and returns negative), the event is zeroed out.
+ *
+ * When the callback `event` is invoked, the first argument will equal `evt`,
+ * and the second argument will be a time measurement from shortly before
+ * the callback.
+ */
+int delayed_event_init(struct delayed_event *evt, struct delay_scheduler *sched,
+	void (*event) (struct delayed_event *evt, struct timespec time));
+/**
+ * Detach `evt` from the connected delay_scheduler and zero it. If
+ * `evt->scheduler` is NULL, this does nothing.
+ */
+void delayed_event_destroy(struct delayed_event *evt);
+/**
+ * Schedule `evt` to occurs roughly at `time`. If `time` is earlier than
+ * the current time, the event will be invoked as soon as the scheduler
+ * can do so. If the event was already scheduled for a time, the new time
+ * replaces the old.
+ */
+int delayed_event_schedule(struct delayed_event *evt, struct timespec time);
+/**
+ * Schedule event `nsec` nanoseconds in the future.
+ */
+int delayed_event_schedule_from_now(struct delayed_event *evt, long nsec);
+/**
+ * Cancel the event (if it had been scheduled.)
+ */
+int delayed_event_disarm(struct delayed_event *evt);
+
 struct sway_server {
 	struct wl_display *wl_display;
 	struct wl_event_loop *wl_event_loop;
@@ -76,6 +128,8 @@ struct sway_server {
 	size_t txn_timeout_ms;
 	list_t *transactions;
 	list_t *dirty_nodes;
+
+	struct delay_scheduler event_scheduler;
 };
 
 struct sway_server server;
