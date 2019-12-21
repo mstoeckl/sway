@@ -439,10 +439,10 @@ void view_execute_criteria(struct sway_view *view) {
 		list_add(view->executed_criteria, criteria);
 		list_t *res_list = execute_command(
 				criteria->cmdlist, NULL, view->container);
-		while (res_list->length) {
-			struct cmd_results *res = res_list->items[0];
-			free_cmd_results(res);
-			list_del(res_list, 0);
+		for (int i = 0; i < res_list->length; ++i) {
+			struct cmd_results *res = res_list->items[i];
+			free_cmd_results(*res);
+			free(res);
 		}
 		list_free(res_list);
 	}

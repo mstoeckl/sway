@@ -7,14 +7,14 @@
 #include "sway/commands.h"
 #include "sway/input/cursor.h"
 
-static struct cmd_results *press_or_release(struct sway_cursor *cursor,
+static struct cmd_results press_or_release(struct sway_cursor *cursor,
 		char *action, char *button_str);
 
 static const char expected_syntax[] = "Expected 'cursor <move> <x> <y>' or "
 					"'cursor <set> <x> <y>' or "
 					"'cursor <press|release> <button[1-9]|event-name-or-code>'";
 
-static struct cmd_results *handle_command(struct sway_cursor *cursor,
+static struct cmd_results handle_command(struct sway_cursor *cursor,
 		int argc, char **argv) {
 	if (strcasecmp(argv[0], "move") == 0) {
 		if (argc < 3) {
@@ -37,18 +37,15 @@ static struct cmd_results *handle_command(struct sway_cursor *cursor,
 		if (argc < 2) {
 			return cmd_results_new(CMD_INVALID, expected_syntax);
 		}
-		struct cmd_results *error = NULL;
-		if ((error = press_or_release(cursor, argv[0], argv[1]))) {
-			return error;
-		}
+		return press_or_release(cursor, argv[0], argv[1]);
 	}
 
 	return cmd_results_new(CMD_SUCCESS, NULL);
 }
 
-struct cmd_results *seat_cmd_cursor(int argc, char **argv) {
-	struct cmd_results *error = NULL;
-	if ((error = checkarg(argc, "cursor", EXPECTED_AT_LEAST, 2))) {
+struct cmd_results seat_cmd_cursor(int argc, char **argv) {
+	struct cmd_results error;
+	if (checkarg(&error, argc, "cursor", EXPECTED_AT_LEAST, 2)) {
 		return error;
 	}
 	struct seat_config *sc = config->handler_context.seat_config;
@@ -66,21 +63,20 @@ struct cmd_results *seat_cmd_cursor(int argc, char **argv) {
 			return cmd_results_new(CMD_FAILURE,
 					"Seat %s does not exist", sc->name);
 		}
-		error = handle_command(seat->cursor, argc, argv);
+		return handle_command(seat->cursor, argc, argv);
 	} else {
 		struct sway_seat *seat = NULL;
 		wl_list_for_each(seat, &server.input->seats, link) {
 			error = handle_command(seat->cursor, argc, argv);
-			if ((error && error->status != CMD_SUCCESS)) {
-				break;
+			if (error.status != CMD_SUCCESS) {
+				return error;
 			}
 		}
+		return cmd_results_new(CMD_SUCCESS, NULL);
 	}
-
-	return error ? error : cmd_results_new(CMD_SUCCESS, NULL);
 }
 
-static struct cmd_results *press_or_release(struct sway_cursor *cursor,
+static struct cmd_results press_or_release(struct sway_cursor *cursor,
 		char *action, char *button_str) {
 	enum wlr_button_state state;
 	uint32_t button;
@@ -95,8 +91,7 @@ static struct cmd_results *press_or_release(struct sway_cursor *cursor,
 	char *message = NULL;
 	button = get_mouse_button(button_str, &message);
 	if (message) {
-		struct cmd_results *error =
-			cmd_results_new(CMD_INVALID, message);
+		struct cmd_results error = cmd_results_new(CMD_INVALID, message);
 		free(message);
 		return error;
 	} else if (button == SWAY_SCROLL_UP || button == SWAY_SCROLL_DOWN
