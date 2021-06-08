@@ -21,6 +21,7 @@
 #include "sway/input/input-manager.h"
 #include "sway/input/seat.h"
 #include "sway/layers.h"
+#include "sway/lock.h"
 #include "sway/output.h"
 #include "sway/server.h"
 #include "sway/tree/arrange.h"
@@ -141,6 +142,11 @@ static void render_surface_iterator(struct sway_output *output,
 
 	struct wlr_texture *texture = wlr_surface_get_texture(surface);
 	if (!texture) {
+		return;
+	}
+
+	struct wl_client* client = wl_resource_get_client(surface->resource);
+	if (server.lock_screen.client && server.lock_screen.client != client) {
 		return;
 	}
 
@@ -1048,6 +1054,47 @@ void output_render(struct sway_output *output, struct timespec *when,
 		pixman_region32_union_rect(damage, damage, 0, 0, width, height);
 	}
 
+	if (server.lock_screen.client) {
+		/* assume lock screen client is overlay surface, etc */
+
+		// repaint the background, to hide old data
+		float clear_color[] = {0.0f, 0.0f, 0.0f, 1.0f};
+		if (server.lock_screen.client == PERMALOCK_CLIENT) {
+			clear_color[0] = 1.f;
+		}
+		int nrects;
+		pixman_box32_t *rects = pixman_region32_rectangles(damage, &nrects);
+		for (int i = 0; i < nrects; ++i) {
+			scissor_output(wlr_output, &rects[i]);
+			wlr_renderer_clear(renderer, clear_color);
+		}
+
+		if (server.lock_screen.client == PERMALOCK_CLIENT) {
+			if (!output->permalock_message) {
+				output->permalock_message = draw_permalock_message(output);
+			}
+
+			wlr_renderer_scissor(renderer, NULL);
+
+			if (output->permalock_message) {
+				float matrix[9];
+				/* todo: rescale message to fit into screen */
+				wlr_matrix_identity(matrix);
+				float x_expand = output->width / (float)output->permalock_message->width;
+				float y_expand = output->height / (float)output->permalock_message->height;
+				float expand = x_expand > y_expand ? y_expand : x_expand;
+
+				wlr_matrix_scale(matrix, expand, expand);
+				int x = output->width / 2 / expand - output->permalock_message->width / 2;
+				int y = output->height / 2 / expand - output->permalock_message->height / 2;
+
+				wlr_render_texture(renderer, output->permalock_message, matrix, x, y, 1.0);
+			}
+		}
+
+		// then go to clear lock screen
+		goto render_overlay;
+	}
 	if (output_has_opaque_overlay_layer_surface(output)) {
 		goto render_overlay;
 	}

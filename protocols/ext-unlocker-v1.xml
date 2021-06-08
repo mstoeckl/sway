@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="ext_unlocker_v1">
+  <copyright>
+    Copyright 2021 Manuel Stoeckl
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+    IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="ext_unlocker_v1" version="1">
+    <description summary="protocol for a session (un)locker">
+      This protocol provides an interface for letting a special lock screen
+      client, which was created when the session was locked, communicate to
+      the compositor that the session should be unlocked.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy ext_unlocker_v1 object">
+        Announce that this object will no longer be used.
+      </description>
+    </request>
+
+    <request name="unlock">
+      <description summary="unlock screen">
+        Let the compositor know that it should unlock the screen.
+
+        After this request has been sent by the client, sending it again shall
+        have no effect.
+      </description>
+    </request>
+  </interface>
+</protocol>

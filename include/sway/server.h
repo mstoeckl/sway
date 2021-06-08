@@ -2,6 +2,7 @@
 #define _SWAY_SERVER_H
 #include <stdbool.h>
 #include <wayland-server-core.h>
+#include <sway/lock.h>
 #include <wlr/backend.h>
 #include <wlr/backend/session.h>
 #include <wlr/render/wlr_renderer.h>
@@ -89,6 +90,8 @@ struct sway_server {
 
 	struct wlr_xdg_activation_v1 *xdg_activation_v1;
 	struct wl_listener xdg_activation_v1_request_activate;
+
+	struct sway_lock_state lock_screen;
 
 	// The timeout for transactions, after which a transaction is applied
 	// regardless of readiness.

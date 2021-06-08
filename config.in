@@ -20,6 +20,8 @@ set $term foot
 # on the original workspace that the command was run on.
 set $menu dmenu_path | dmenu | xargs swaymsg exec --
 
+set $lock swaylock -f -c 000000
+
 ### Output configuration
 #
 # Default wallpaper (more resolutions are available in @datadir@/backgrounds/sway/)
@@ -36,9 +38,9 @@ output * bg @datadir@/backgrounds/sway/Sway_Wallpaper_Blue_1920x1080.png fill
 # Example configuration:
 #
 # exec swayidle -w \
-#          timeout 300 'swaylock -f -c 000000' \
+#          timeout 300 'swaymsg -- lock_screen $lock' \
 #          timeout 600 'swaymsg "output * dpms off"' resume 'swaymsg "output * dpms on"' \
-#          before-sleep 'swaylock -f -c 000000'
+#          before-sleep 'swaymsg -- lock_screen $lock'
 #
 # This will lock your screen after 300 seconds of inactivity, then turn off
 # your displays after another 300 seconds, and turn your screens back on when
@@ -213,5 +215,17 @@ bar {
         inactive_workspace #32323200 #32323200 #5c5c5c
     }
 }
+
+#
+# Lock screen. 
+#
+bindsym $mod+Shift+L lock_screen --fail-unlocked $lock
+
+# For additional security, you can configure sway to deny access if
+# the lock screen crashes. You may (depending on what caused the crash)
+# be able to recover from this by running the lock screen again.
+#
+# bindsym --locked $mod+Shift+L lock_screen --fail-locked $lock
+
 
 include @sysconfdir@/sway/config.d/*
