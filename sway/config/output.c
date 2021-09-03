@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
+#include <drm_fourcc.h>
 #include <stdbool.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -67,6 +68,7 @@ struct output_config *new_output_config(const char *name) {
 	oc->subpixel = WL_OUTPUT_SUBPIXEL_UNKNOWN;
 	oc->max_render_time = -1;
 	oc->adaptive_sync = -1;
+	oc->preferred_render_format = 0;
 	return oc;
 }
 
@@ -112,6 +114,9 @@ void merge_output_config(struct output_config *dst, struct output_config *src) {
 	}
 	if (src->adaptive_sync != -1) {
 		dst->adaptive_sync = src->adaptive_sync;
+	}
+	if (src->preferred_render_format != 0) {
+		dst->preferred_render_format = src->preferred_render_format;
 	}
 	if (src->background) {
 		free(dst->background);
@@ -436,6 +441,18 @@ static void queue_output_config(struct output_config *oc,
 		sway_log(SWAY_DEBUG, "Set %s adaptive sync to %d", wlr_output->name,
 			oc->adaptive_sync);
 		wlr_output_enable_adaptive_sync(wlr_output, oc->adaptive_sync == 1);
+	}
+
+	if (oc && oc->preferred_render_format != 0) {
+		sway_log(SWAY_DEBUG, "Set %s output render format to 0x%08x",
+			wlr_output->name, oc->preferred_render_format);
+		wlr_output_set_render_format(wlr_output, oc->preferred_render_format);
+
+		if (!wlr_output_test(wlr_output)) {
+			sway_log(SWAY_DEBUG, "Preferred output format rejected, "
+				"falling back to default");
+			wlr_output_set_render_format(wlr_output, DRM_FORMAT_XRGB8888);
+		}
 	}
 }
 
