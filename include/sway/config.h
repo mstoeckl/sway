@@ -266,6 +266,7 @@ struct output_config {
 	enum wl_output_subpixel subpixel;
 	int max_render_time; // In milliseconds
 	int adaptive_sync;
+	const uint32_t *render_format_order;
 
 	char *background;
 	char *background_option;

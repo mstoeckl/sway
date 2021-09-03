@@ -67,6 +67,7 @@ struct output_config *new_output_config(const char *name) {
 	oc->subpixel = WL_OUTPUT_SUBPIXEL_UNKNOWN;
 	oc->max_render_time = -1;
 	oc->adaptive_sync = -1;
+	oc->render_format_order = NULL;
 	return oc;
 }
 
@@ -112,6 +113,9 @@ void merge_output_config(struct output_config *dst, struct output_config *src) {
 	}
 	if (src->adaptive_sync != -1) {
 		dst->adaptive_sync = src->adaptive_sync;
+	}
+	if (src->render_format_order != NULL) {
+		dst->render_format_order = src->render_format_order;
 	}
 	if (src->background) {
 		free(dst->background);
@@ -429,6 +433,20 @@ static void queue_output_config(struct output_config *oc,
 		sway_log(SWAY_DEBUG, "Set %s adaptive sync to %d", wlr_output->name,
 			oc->adaptive_sync);
 		wlr_output_enable_adaptive_sync(wlr_output, oc->adaptive_sync == 1);
+	}
+
+	if (oc && oc->render_format_order != NULL) {
+		char buf[256];
+		size_t start = 0;
+		const uint32_t *format = oc->render_format_order;
+		while (*format && start < sizeof(buf)) {
+			start += snprintf(buf + start, sizeof(buf) - start,
+					  "0x%08x ", *format);
+			format++;
+		}
+		sway_log(SWAY_DEBUG, "Set %s render format preference order to %s",
+			wlr_output->name, buf);
+		wlr_output_set_render_format_preference_order(wlr_output, oc->render_format_order);
 	}
 }
 
