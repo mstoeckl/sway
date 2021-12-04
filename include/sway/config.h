@@ -261,7 +261,11 @@ enum scale_filter_mode {
 enum render_bit_depth {
 	RENDER_BIT_DEPTH_DEFAULT, // the default is currently 8
 	RENDER_BIT_DEPTH_8,
+	RENDER_BIT_DEPTH_8_PACKED,
 	RENDER_BIT_DEPTH_10,
+	RENDER_BIT_DEPTH_5,
+	RENDER_BIT_DEPTH_16F,
+	RENDER_BIT_DEPTH_16,
 };
 
 /**
