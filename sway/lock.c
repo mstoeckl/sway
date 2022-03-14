@@ -5,6 +5,7 @@
 #include "sway/input/seat.h"
 #include "sway/output.h"
 #include "sway/server.h"
+#include <wlr/types/wlr_subcompositor.h>
 
 struct sway_session_lock_surface {
 	struct wlr_session_lock_surface_v1 *lock_surface;
@@ -15,7 +16,29 @@ struct sway_session_lock_surface {
 	struct wl_listener surface_commit;
 	struct wl_listener output_mode;
 	struct wl_listener output_commit;
+	struct wl_listener new_subsurface;
+	struct wl_list subsurfaces;
 };
+
+struct sway_session_lock_subsurface {
+	struct wlr_subsurface *wlr_subsurface;
+	struct sway_session_lock_surface *lock_surface;
+	struct wl_list link;
+
+	struct wl_listener map;
+	struct wl_listener unmap;
+	struct wl_listener destroy;
+	struct wl_listener commit;
+};
+
+static void lock_subsurface_destroy(struct sway_session_lock_subsurface *subsurface) {
+	wl_list_remove(&subsurface->link);
+	wl_list_remove(&subsurface->map.link);
+	wl_list_remove(&subsurface->unmap.link);
+	wl_list_remove(&subsurface->destroy.link);
+	wl_list_remove(&subsurface->commit.link);
+	free(subsurface);
+}
 
 static void handle_surface_map(struct wl_listener *listener, void *data) {
 	struct sway_session_lock_surface *surf = wl_container_of(listener, surf, map);
@@ -48,6 +71,12 @@ static void handle_output_commit(struct wl_listener *listener, void *data) {
 
 static void handle_surface_destroy(struct wl_listener *listener, void *data) {
 	struct sway_session_lock_surface *surf = wl_container_of(listener, surf, destroy);
+
+	struct sway_session_lock_subsurface *subsurface, *subsurface_tmp;
+	wl_list_for_each_safe(subsurface, subsurface_tmp, &surf->subsurfaces, link) {
+		lock_subsurface_destroy(subsurface);
+	}
+
 	wl_list_remove(&surf->map.link);
 	wl_list_remove(&surf->destroy.link);
 	wl_list_remove(&surf->surface_commit.link);
@@ -55,6 +84,71 @@ static void handle_surface_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&surf->output_commit.link);
 	output_damage_whole(surf->output);
 	free(surf);
+}
+
+static void subsurface_damage(struct sway_session_lock_subsurface *subsurface,
+		bool whole) {
+	struct sway_session_lock_surface *layer = subsurface->lock_surface;
+	struct wlr_output *wlr_output = layer->output->wlr_output;
+	if (!wlr_output) {
+		return;
+	}
+	struct sway_output *output = wlr_output->data;
+	int ox = subsurface->wlr_subsurface->current.x;
+	int oy = subsurface->wlr_subsurface->current.y;
+	output_damage_surface(
+			output, ox, oy, subsurface->wlr_subsurface->surface, whole);
+}
+
+static void subsurface_handle_unmap(struct wl_listener *listener, void *data) {
+	struct sway_session_lock_subsurface *subsurface =
+			wl_container_of(listener, subsurface, unmap);
+	subsurface_damage(subsurface, true);
+}
+
+static void subsurface_handle_map(struct wl_listener *listener, void *data) {
+	struct sway_session_lock_subsurface *subsurface =
+			wl_container_of(listener, subsurface, map);
+	subsurface_damage(subsurface, true);
+}
+
+static void subsurface_handle_commit(struct wl_listener *listener, void *data) {
+	struct sway_session_lock_subsurface *subsurface =
+			wl_container_of(listener, subsurface, commit);
+	subsurface_damage(subsurface, false);
+}
+
+static void subsurface_handle_destroy(struct wl_listener *listener,
+		void *data) {
+	struct sway_session_lock_subsurface *subsurface =
+			wl_container_of(listener, subsurface, destroy);
+	lock_subsurface_destroy(subsurface);
+}
+
+static void handle_new_subsurface(struct wl_listener *listener, void *data) {
+	struct sway_session_lock_surface *sway_lock_surface =
+			wl_container_of(listener, sway_lock_surface, new_subsurface);
+	struct wlr_subsurface *wlr_subsurface = data;
+
+	struct sway_session_lock_subsurface *subsurface =
+			calloc(1, sizeof(struct sway_session_lock_subsurface));
+	if (subsurface == NULL) {
+		wl_resource_post_no_memory(wlr_subsurface->resource);
+		return;
+	}
+
+	subsurface->wlr_subsurface = wlr_subsurface;
+	subsurface->lock_surface = sway_lock_surface;
+	wl_list_insert(&sway_lock_surface->subsurfaces, &subsurface->link);
+
+	subsurface->map.notify = subsurface_handle_map;
+	wl_signal_add(&wlr_subsurface->events.map, &subsurface->map);
+	subsurface->unmap.notify = subsurface_handle_unmap;
+	wl_signal_add(&wlr_subsurface->events.unmap, &subsurface->unmap);
+	subsurface->destroy.notify = subsurface_handle_destroy;
+	wl_signal_add(&wlr_subsurface->events.destroy, &subsurface->destroy);
+	subsurface->commit.notify = subsurface_handle_commit;
+	wl_signal_add(&wlr_subsurface->surface->events.commit, &subsurface->commit);
 }
 
 static void handle_new_surface(struct wl_listener *listener, void *data) {
@@ -78,10 +172,14 @@ static void handle_new_surface(struct wl_listener *listener, void *data) {
 	wl_signal_add(&lock_surface->events.destroy, &surf->destroy);
 	surf->surface_commit.notify = handle_surface_commit;
 	wl_signal_add(&surf->surface->events.commit, &surf->surface_commit);
+	surf->new_subsurface.notify = handle_new_subsurface;
+	wl_signal_add(&surf->surface->events.new_subsurface, &surf->new_subsurface);
 	surf->output_mode.notify = handle_output_mode;
 	wl_signal_add(&output->wlr_output->events.mode, &surf->output_mode);
 	surf->output_commit.notify = handle_output_commit;
 	wl_signal_add(&output->wlr_output->events.commit, &surf->output_commit);
+
+	wl_list_init(&surf->subsurfaces);
 }
 
 static void handle_unlock(struct wl_listener *listener, void *data) {
