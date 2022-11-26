@@ -218,6 +218,7 @@ subdir('protocols')
 subdir('common')
 subdir('sway')
 subdir('swaymsg')
+subdir('sway-exec-helper')
 
 if get_option('swaybar') or get_option('swaynag')
 	subdir('client')

@@ -2,6 +2,7 @@
 #include <getopt.h>
 #include <pango/pangocairo.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +32,7 @@ static int exit_value = 0;
 static struct rlimit original_nofile_rlimit = {0};
 struct sway_server server = {0};
 struct sway_debug debug = {0};
+int exec_helper_socket = -1;
 
 void sway_terminate(int exit_code) {
 	if (!server.wl_display) {
@@ -254,6 +256,8 @@ static const char usage[] =
 	"      --get-socketpath   Gets the IPC socket path and prints it, then exits.\n"
 	"\n";
 
+extern char **environ;
+
 int main(int argc, char **argv) {
 	static bool verbose = false, debug = false, validate = false, allow_unsupported_gpu = false;
 
@@ -364,7 +368,6 @@ int main(int argc, char **argv) {
 	}
 
 	detect_proprietary(allow_unsupported_gpu);
-	increase_nofile_limit();
 
 	// handle SIGTERM signals
 	signal(SIGTERM, sig_handler);
@@ -373,6 +376,27 @@ int main(int argc, char **argv) {
 	// prevent ipc from crashing sway
 	signal(SIGPIPE, SIG_IGN);
 
+	// launch sway exec helper process
+	int sockets[2];
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == -1) {
+		sway_log(SWAY_ERROR, "Unable to create socket pair");
+		exit(EXIT_FAILURE);
+	}
+	exec_helper_socket = sockets[0];
+	if (!sway_set_cloexec(exec_helper_socket, true)) {
+		sway_log(SWAY_ERROR, "Failed to make helper socket CLOEXEC");
+		exit(EXIT_FAILURE);
+	}
+	pid_t helper_pid = 0;
+	char socket_str[20];
+	snprintf(socket_str, sizeof(socket_str), "%d", sockets[1]);
+	char *helper_argv[] = {"sway-exec-helper", socket_str, NULL};
+	if (posix_spawnp(&helper_pid, "sway-exec-helper", NULL, NULL, helper_argv, environ) == -1) {
+		sway_log(SWAY_ERROR, "Failed to start helper process");
+		exit(EXIT_FAILURE);
+	}
+	close(sockets[1]);
+
 	sway_log(SWAY_INFO, "Starting sway version " SWAY_VERSION);
 
 	root = root_create();
@@ -380,6 +404,8 @@ int main(int argc, char **argv) {
 	if (!server_init(&server)) {
 		return 1;
 	}
+
+	increase_nofile_limit();
 
 	if (validate) {
 		bool valid = load_main_config(config_path, false, true);
